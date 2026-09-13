@@ -7,42 +7,40 @@ st.set_page_config(
 )
 
 st.title("📧 Mailbox Dashboard")
-st.write("Mailbox monitoring dashboard")
+st.write("Authorized mailbox monitoring")
 
 st.divider()
 
-# Test mailbox
-accounts = [
-    {
-        "name": "Account 01",
-        "provider": "Yahoo",
-        "status": "Ready",
-        "mail_count": 0
-    }
-]
+st.subheader("Add Test Mailbox")
 
-st.subheader("Mailboxes")
+email = st.text_input(
+    "Email address",
+    placeholder="example@yahoo.com"
+)
 
-for account in accounts:
-    col1, col2, col3, col4 = st.columns(4)
+provider = st.selectbox(
+    "Provider",
+    ["Yahoo", "AOL"]
+)
 
-    with col1:
-        st.write("**Account**")
-        st.write(account["name"])
-
-    with col2:
-        st.write("**Provider**")
-        st.write(account["provider"])
-
-    with col3:
-        st.write("**Status**")
-        st.success(account["status"])
-
-    with col4:
-        st.write("**Mail count**")
-        st.write(account["mail_count"])
+if st.button("Add Mailbox"):
+    if email:
+        st.success(f"{email} added successfully")
+        st.info(f"Provider: {provider}")
+    else:
+        st.warning("Please enter an email address")
 
 st.divider()
 
-if st.button("🔄 Check Mailboxes"):
-    st.info("Mailbox checking module will be connected next.")
+st.subheader("Mailbox Status")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("Total Mailboxes", "0")
+
+with col2:
+    st.metric("Connected", "0")
+
+with col3:
+    st.metric("Errors", "0")
