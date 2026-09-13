@@ -5,12 +5,12 @@ from email.header import decode_header
 import streamlit as st
 
 st.set_page_config(
-    page_title="Yahoo Mail Dashboard",
+    page_title="Email Dashboard",
     page_icon="📧",
     layout="wide"
 )
 
-st.title("📧 Yahoo Mail Dashboard")
+st.title("📧 Email Dashboard")
 
 
 def decode_text(value):
@@ -31,7 +31,7 @@ def decode_text(value):
     return result
 
 
-def check_mailbox(email_address, app_password):
+def check_mailbox(email_address, password):
 
     try:
         mail = imaplib.IMAP4_SSL(
@@ -41,7 +41,7 @@ def check_mailbox(email_address, app_password):
 
         mail.login(
             email_address,
-            app_password
+            password
         )
 
         mail.select("INBOX")
@@ -56,6 +56,8 @@ def check_mailbox(email_address, app_password):
             return None, "Could not read Inbox."
 
         unread_ids = data[0].split()
+
+        unread_count = len(unread_ids)
 
         unread_ids = unread_ids[-10:]
         unread_ids.reverse()
@@ -78,116 +80,128 @@ def check_mailbox(email_address, app_password):
                 raw_email
             )
 
-            sender = decode_text(
-                msg.get("From")
-            )
-
-            subject = decode_text(
-                msg.get("Subject")
-            )
-
-            date = msg.get("Date")
-
             messages.append({
-                "from": sender,
-                "subject": subject,
-                "date": date
+                "from": decode_text(msg.get("From")),
+                "subject": decode_text(msg.get("Subject")),
+                "date": msg.get("Date")
             })
 
         mail.logout()
 
-        return messages, None
+        return {
+            "unread_count": unread_count,
+            "messages": messages
+        }, None
 
     except Exception as e:
+
         return None, str(e)
 
 
-# -------------------------------
-# Mailbox 1
-# -------------------------------
+# -----------------------------
+# Mailbox configuration
+# -----------------------------
 
-email_1 = os.getenv("YAHOO_EMAIL")
-password_1 = os.getenv("YAHOO_APP_PASSWORD")
+mailboxes = [
+    {
+        "name": "Mailbox 1",
+        "email": os.getenv("YAHOO_EMAIL"),
+        "password": os.getenv("YAHOO_APP_PASSWORD")
+    },
+    {
+        "name": "Mailbox 2",
+        "email": os.getenv("YAHOO_EMAIL_2"),
+        "password": os.getenv("YAHOO_APP_PASSWORD_2")
+    }
+]
 
 
-# -------------------------------
-# Mailbox 2
-# -------------------------------
+# -----------------------------
+# Dashboard
+# -----------------------------
 
-email_2 = os.getenv("YAHOO_EMAIL_2")
-password_2 = os.getenv("YAHOO_APP_PASSWORD_2")
+for mailbox in mailboxes:
 
+    st.divider()
 
-if st.button("🔄 Check All Mailboxes"):
+    col1, col2 = st.columns([3, 1])
 
-    mailboxes = [
-        ("Mailbox 1", email_1, password_1),
-        ("Mailbox 2", email_2, password_2)
-    ]
+    with col1:
 
-    for mailbox_name, email_address, password in mailboxes:
-
-        st.divider()
-
-        st.header(f"📬 {mailbox_name}")
-
-        if not email_address or not password:
-
-            st.warning(
-                f"{mailbox_name} credentials are not configured."
-            )
-
-            continue
+        st.subheader(
+            f"📬 {mailbox['name']}"
+        )
 
         st.write(
-            f"**Email:** {email_address}"
+            f"**Email:** {mailbox['email']}"
         )
 
-        messages, error = check_mailbox(
-            email_address,
-            password
+    with col2:
+
+        check_button = st.button(
+            "🔄 Check",
+            key=mailbox["name"]
         )
 
-        if error:
+    if check_button:
+
+        if not mailbox["email"] or not mailbox["password"]:
 
             st.error(
-                f"❌ Connection failed: {error}"
+                "❌ Mailbox credentials are missing."
             )
 
         else:
 
-            st.success(
-                "✅ Mailbox connected successfully!"
+            result, error = check_mailbox(
+                mailbox["email"],
+                mailbox["password"]
             )
 
-            st.metric(
-                "Unread Messages",
-                len(messages)
-            )
+            if error:
 
-            if not messages:
-
-                st.info(
-                    "No unread emails."
+                st.error(
+                    f"🔴 Connection failed: {error}"
                 )
 
             else:
 
-                for message in messages:
+                st.success(
+                    "🟢 Connected successfully!"
+                )
 
-                    with st.container(border=True):
+                st.metric(
+                    "Unread Messages",
+                    result["unread_count"]
+                )
 
-                        st.write(
-                            "**From:**",
-                            message["from"]
-                        )
+                if not result["messages"]:
 
-                        st.write(
-                            "**Subject:**",
-                            message["subject"]
-                        )
+                    st.info(
+                        "No unread emails."
+                    )
 
-                        st.write(
-                            "**Date:**",
-                            message["date"]
-                        )
+                else:
+
+                    st.write(
+                        "### 📩 Latest Unread Emails"
+                    )
+
+                    for message in result["messages"]:
+
+                        with st.container(border=True):
+
+                            st.write(
+                                "**From:**",
+                                message["from"]
+                            )
+
+                            st.write(
+                                "**Subject:**",
+                                message["subject"]
+                            )
+
+                            st.write(
+                                "**Date:**",
+                                message["date"]
+                            )
