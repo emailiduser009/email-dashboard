@@ -1,46 +1,53 @@
+import os
+import imaplib
 import streamlit as st
 
 st.set_page_config(
-    page_title="Mailbox Dashboard",
+    page_title="Yahoo Mail Dashboard",
     page_icon="📧",
     layout="wide"
 )
 
-st.title("📧 Mailbox Dashboard")
-st.write("Authorized mailbox monitoring")
+st.title("📧 Yahoo Mail Dashboard")
 
-st.divider()
+email = os.getenv("YAHOO_EMAIL")
+app_password = os.getenv("YAHOO_APP_PASSWORD")
 
-st.subheader("Add Test Mailbox")
+st.write("Yahoo mailbox connection test")
 
-email = st.text_input(
-    "Email address",
-    placeholder="example@yahoo.com"
-)
+if st.button("🔄 Check Yahoo Mail"):
 
-provider = st.selectbox(
-    "Provider",
-    ["Yahoo", "AOL"]
-)
-
-if st.button("Add Mailbox"):
-    if email:
-        st.success(f"{email} added successfully")
-        st.info(f"Provider: {provider}")
+    if not email or not app_password:
+        st.error("Yahoo credentials are not configured in Render.")
     else:
-        st.warning("Please enter an email address")
+        try:
+            mail = imaplib.IMAP4_SSL("imap.mail.yahoo.com", 993)
 
-st.divider()
+            mail.login(email, app_password)
 
-st.subheader("Mailbox Status")
+            mail.select("INBOX")
 
-col1, col2, col3 = st.columns(3)
+            status, data = mail.search(None, "ALL")
 
-with col1:
-    st.metric("Total Mailboxes", "0")
+            if status == "OK":
+                message_ids = data[0].split()
+                total = len(message_ids)
 
-with col2:
-    st.metric("Connected", "0")
+                st.success("✅ Yahoo mailbox connected successfully!")
 
-with col3:
-    st.metric("Errors", "0")
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.metric("Mailbox", email)
+
+                with col2:
+                    st.metric("Total Inbox Messages", total)
+
+            else:
+                st.warning("Could not read the Inbox.")
+
+            mail.logout()
+
+        except Exception as e:
+            st.error("❌ Yahoo connection failed.")
+            st.write(str(e))
