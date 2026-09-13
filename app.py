@@ -31,11 +31,11 @@ def decode_text(value):
     return result
 
 
-def check_mailbox(email_address, password):
+def check_mailbox(email_address, password, server):
 
     try:
         mail = imaplib.IMAP4_SSL(
-            "imap.mail.yahoo.com",
+            server,
             993
         )
 
@@ -81,8 +81,12 @@ def check_mailbox(email_address, password):
             )
 
             messages.append({
-                "from": decode_text(msg.get("From")),
-                "subject": decode_text(msg.get("Subject")),
+                "from": decode_text(
+                    msg.get("From")
+                ),
+                "subject": decode_text(
+                    msg.get("Subject")
+                ),
                 "date": msg.get("Date")
             })
 
@@ -98,27 +102,39 @@ def check_mailbox(email_address, password):
         return None, str(e)
 
 
-# -----------------------------
+# =====================================
 # Mailbox configuration
-# -----------------------------
+# =====================================
 
 mailboxes = [
+
     {
-        "name": "Mailbox 1",
+        "name": "Yahoo Mailbox 1",
         "email": os.getenv("YAHOO_EMAIL"),
-        "password": os.getenv("YAHOO_APP_PASSWORD")
+        "password": os.getenv("YAHOO_APP_PASSWORD"),
+        "server": "imap.mail.yahoo.com"
     },
+
     {
-        "name": "Mailbox 2",
+        "name": "Yahoo Mailbox 2",
         "email": os.getenv("YAHOO_EMAIL_2"),
-        "password": os.getenv("YAHOO_APP_PASSWORD_2")
+        "password": os.getenv("YAHOO_APP_PASSWORD_2"),
+        "server": "imap.mail.yahoo.com"
+    },
+
+    {
+        "name": "AOL Mailbox 1",
+        "email": os.getenv("AOL_EMAIL"),
+        "password": os.getenv("AOL_APP_PASSWORD"),
+        "server": "imap.aol.com"
     }
+
 ]
 
 
-# -----------------------------
+# =====================================
 # Dashboard
-# -----------------------------
+# =====================================
 
 for mailbox in mailboxes:
 
@@ -145,7 +161,10 @@ for mailbox in mailboxes:
 
     if check_button:
 
-        if not mailbox["email"] or not mailbox["password"]:
+        if (
+            not mailbox["email"]
+            or not mailbox["password"]
+        ):
 
             st.error(
                 "❌ Mailbox credentials are missing."
@@ -155,7 +174,8 @@ for mailbox in mailboxes:
 
             result, error = check_mailbox(
                 mailbox["email"],
-                mailbox["password"]
+                mailbox["password"],
+                mailbox["server"]
             )
 
             if error:
@@ -189,7 +209,9 @@ for mailbox in mailboxes:
 
                     for message in result["messages"]:
 
-                        with st.container(border=True):
+                        with st.container(
+                            border=True
+                        ):
 
                             st.write(
                                 "**From:**",
