@@ -4,13 +4,14 @@ import email
 from email.header import decode_header
 import streamlit as st
 
+
 st.set_page_config(
     page_title="Email Dashboard",
     page_icon="📧",
     layout="wide"
 )
 
-st.title("📧 Email Dashboard")
+st.title("📧 50 Mailbox Dashboard")
 
 
 def decode_text(value):
@@ -59,6 +60,7 @@ def check_mailbox(email_address, password, server):
 
         unread_count = len(unread_ids)
 
+        # Latest 10 unread emails
         unread_ids = unread_ids[-10:]
         unread_ids.reverse()
 
@@ -103,33 +105,46 @@ def check_mailbox(email_address, password, server):
 
 
 # =====================================
-# Mailbox configuration
+# Create 50 Mailboxes
 # =====================================
 
-mailboxes = [
+mailboxes = []
 
-    {
-        "name": "Yahoo Mailbox 1",
-        "email": os.getenv("YAHOO_EMAIL"),
-        "password": os.getenv("YAHOO_APP_PASSWORD"),
+
+# -------------------------------------
+# Yahoo 1 - 25
+# -------------------------------------
+
+for i in range(1, 26):
+
+    mailboxes.append({
+        "name": f"Yahoo Mailbox {i}",
+        "email": os.getenv(
+            f"YAHOO_EMAIL_{i}"
+        ),
+        "password": os.getenv(
+            f"YAHOO_APP_PASSWORD_{i}"
+        ),
         "server": "imap.mail.yahoo.com"
-    },
+    })
 
-    {
-        "name": "Yahoo Mailbox 2",
-        "email": os.getenv("YAHOO_EMAIL_2"),
-        "password": os.getenv("YAHOO_APP_PASSWORD_2"),
-        "server": "imap.mail.yahoo.com"
-    },
 
-    {
-        "name": "AOL Mailbox 1",
-        "email": os.getenv("AOL_EMAIL"),
-        "password": os.getenv("AOL_APP_PASSWORD"),
+# -------------------------------------
+# AOL 1 - 25
+# -------------------------------------
+
+for i in range(1, 26):
+
+    mailboxes.append({
+        "name": f"AOL Mailbox {i}",
+        "email": os.getenv(
+            f"AOL_EMAIL_{i}"
+        ),
+        "password": os.getenv(
+            f"AOL_APP_PASSWORD_{i}"
+        ),
         "server": "imap.aol.com"
-    }
-
-]
+    })
 
 
 # =====================================
@@ -140,7 +155,7 @@ for mailbox in mailboxes:
 
     st.divider()
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns([4, 1])
 
     with col1:
 
@@ -148,15 +163,20 @@ for mailbox in mailboxes:
             f"📬 {mailbox['name']}"
         )
 
-        st.write(
-            f"**Email:** {mailbox['email']}"
-        )
+        if mailbox["email"]:
+            st.write(
+                f"**Email:** {mailbox['email']}"
+            )
+        else:
+            st.write(
+                "**Email:** Not configured"
+            )
 
     with col2:
 
         check_button = st.button(
             "🔄 Check",
-            key=mailbox["name"]
+            key=f"check_{mailbox['name']}"
         )
 
     if check_button:
@@ -166,17 +186,21 @@ for mailbox in mailboxes:
             or not mailbox["password"]
         ):
 
-            st.error(
-                "❌ Mailbox credentials are missing."
+            st.warning(
+                "⚠️ This mailbox is not configured yet."
             )
 
         else:
 
-            result, error = check_mailbox(
-                mailbox["email"],
-                mailbox["password"],
-                mailbox["server"]
-            )
+            with st.spinner(
+                "Checking mailbox..."
+            ):
+
+                result, error = check_mailbox(
+                    mailbox["email"],
+                    mailbox["password"],
+                    mailbox["server"]
+                )
 
             if error:
 
@@ -198,7 +222,7 @@ for mailbox in mailboxes:
                 if not result["messages"]:
 
                     st.info(
-                        "No unread emails."
+                        "📭 No unread emails."
                     )
 
                 else:
@@ -214,16 +238,13 @@ for mailbox in mailboxes:
                         ):
 
                             st.write(
-                                "**From:**",
-                                message["from"]
+                                f"**From:** {message['from']}"
                             )
 
                             st.write(
-                                "**Subject:**",
-                                message["subject"]
+                                f"**Subject:** {message['subject']}"
                             )
 
                             st.write(
-                                "**Date:**",
-                                message["date"]
+                                f"**Date:** {message['date']}"
                             )
