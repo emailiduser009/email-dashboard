@@ -12,9 +12,6 @@ st.set_page_config(
 
 st.title("📧 Yahoo Mail Dashboard")
 
-yahoo_email = os.getenv("YAHOO_EMAIL")
-app_password = os.getenv("YAHOO_APP_PASSWORD")
-
 
 def decode_text(value):
     if not value:
@@ -34,11 +31,7 @@ def decode_text(value):
     return result
 
 
-if st.button("🔄 Check Unread Mail"):
-
-    if not yahoo_email or not app_password:
-        st.error("Yahoo credentials are not configured.")
-        st.stop()
+def check_mailbox(email_address, app_password):
 
     try:
         mail = imaplib.IMAP4_SSL(
@@ -47,100 +40,154 @@ if st.button("🔄 Check Unread Mail"):
         )
 
         mail.login(
-            yahoo_email,
+            email_address,
             app_password
         )
 
         mail.select("INBOX")
 
-        # Find unread messages
         status, data = mail.search(
             None,
             "UNSEEN"
         )
 
         if status != "OK":
-            st.error("Could not check unread messages.")
             mail.logout()
-            st.stop()
+            return None, "Could not read Inbox."
 
         unread_ids = data[0].split()
 
-        st.success("✅ Yahoo mailbox connected!")
+        unread_ids = unread_ids[-10:]
+        unread_ids.reverse()
 
-        col1, col2 = st.columns(2)
+        messages = []
 
-        with col1:
-            st.metric(
-                "Unread Messages",
-                len(unread_ids)
+        for msg_id in unread_ids:
+
+            status, msg_data = mail.fetch(
+                msg_id,
+                "(RFC822)"
             )
 
-        with col2:
-            st.metric(
-                "Mailbox",
-                yahoo_email
+            if status != "OK":
+                continue
+
+            raw_email = msg_data[0][1]
+
+            msg = email.message_from_bytes(
+                raw_email
             )
 
-        st.subheader("📩 Unread Emails")
+            sender = decode_text(
+                msg.get("From")
+            )
 
-        if not unread_ids:
-            st.info("No unread emails found.")
+            subject = decode_text(
+                msg.get("Subject")
+            )
 
-        else:
-            # Show newest first
-            unread_ids = unread_ids[-10:]
-            unread_ids.reverse()
+            date = msg.get("Date")
 
-            for msg_id in unread_ids:
-
-                status, msg_data = mail.fetch(
-                    msg_id,
-                    "(RFC822)"
-                )
-
-                if status != "OK":
-                    continue
-
-                raw_email = msg_data[0][1]
-
-                msg = email.message_from_bytes(
-                    raw_email
-                )
-
-                sender = decode_text(
-                    msg.get("From")
-                )
-
-                subject = decode_text(
-                    msg.get("Subject")
-                )
-
-                date = msg.get("Date")
-
-                with st.container(border=True):
-
-                    st.write(
-                        "**From:**",
-                        sender
-                    )
-
-                    st.write(
-                        "**Subject:**",
-                        subject
-                    )
-
-                    st.write(
-                        "**Date:**",
-                        date
-                    )
+            messages.append({
+                "from": sender,
+                "subject": subject,
+                "date": date
+            })
 
         mail.logout()
 
-    except Exception as e:
+        return messages, None
 
-        st.error(
-            "❌ Yahoo mailbox check failed."
+    except Exception as e:
+        return None, str(e)
+
+
+# -------------------------------
+# Mailbox 1
+# -------------------------------
+
+email_1 = os.getenv("YAHOO_EMAIL")
+password_1 = os.getenv("YAHOO_APP_PASSWORD")
+
+
+# -------------------------------
+# Mailbox 2
+# -------------------------------
+
+email_2 = os.getenv("YAHOO_EMAIL_2")
+password_2 = os.getenv("YAHOO_APP_PASSWORD_2")
+
+
+if st.button("🔄 Check All Mailboxes"):
+
+    mailboxes = [
+        ("Mailbox 1", email_1, password_1),
+        ("Mailbox 2", email_2, password_2)
+    ]
+
+    for mailbox_name, email_address, password in mailboxes:
+
+        st.divider()
+
+        st.header(f"📬 {mailbox_name}")
+
+        if not email_address or not password:
+
+            st.warning(
+                f"{mailbox_name} credentials are not configured."
+            )
+
+            continue
+
+        st.write(
+            f"**Email:** {email_address}"
         )
 
-        st.write(str(e))
+        messages, error = check_mailbox(
+            email_address,
+            password
+        )
+
+        if error:
+
+            st.error(
+                f"❌ Connection failed: {error}"
+            )
+
+        else:
+
+            st.success(
+                "✅ Mailbox connected successfully!"
+            )
+
+            st.metric(
+                "Unread Messages",
+                len(messages)
+            )
+
+            if not messages:
+
+                st.info(
+                    "No unread emails."
+                )
+
+            else:
+
+                for message in messages:
+
+                    with st.container(border=True):
+
+                        st.write(
+                            "**From:**",
+                            message["from"]
+                        )
+
+                        st.write(
+                            "**Subject:**",
+                            message["subject"]
+                        )
+
+                        st.write(
+                            "**Date:**",
+                            message["date"]
+                        )
