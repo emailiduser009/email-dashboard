@@ -1,915 +1,820 @@
-```python
 import os
 import imaplib
 import email
 from email.header import decode_header
 from datetime import datetime
+
 import streamlit as st
 
 
-# =====================================
-# Page Settings
-# =====================================
+# ============================================================
+# SETTINGS
+# ============================================================
+
+IMAP_SERVER = "imap.mail.yahoo.com"
+IMAP_PORT = 993
+
+MAX_MESSAGES_PER_ACCOUNT = 2000
+
+
+# ============================================================
+# PAGE CONFIG
+# ============================================================
 
 st.set_page_config(
-    page_title="Yahoo Email Dashboard",
+    page_title="Yahoo 100 Mailbox Dashboard",
     page_icon="📧",
     layout="wide"
 )
 
-st.title("📧 Yahoo 100 Mailbox Dashboard")
 
-
-# =====================================
-# Session State
-# =====================================
+# ============================================================
+# SESSION STATE
+# ============================================================
 
 if "results" not in st.session_state:
     st.session_state.results = {}
 
 if "last_checked" not in st.session_state:
-    st.session_state.last_checked = {}
+    st.session_state.last_checked = None
 
 
-# =====================================
-# Decode Email Header
-# =====================================
+# ============================================================
+# TEXT DECODER
+# ============================================================
 
 def decode_text(value):
 
     if not value:
         return ""
 
-    result = ""
+    try:
+        decoded_parts = decode_header(value)
 
-    for text, encoding in decode_header(value):
+        result = ""
 
-        if isinstance(text, bytes):
+        for part, encoding in decoded_parts:
 
-            try:
-                result += text.decode(
-                    encoding or "utf-8",
-                    errors="replace"
-                )
+            if isinstance(part, bytes):
 
-            except Exception:
-                result += text.decode(
-                    "utf-8",
-                    errors="replace"
-                )
+                try:
+                    result += part.decode(encoding or "utf-8", errors="replace")
 
-        else:
+                except Exception:
+                    result += part.decode("utf-8", errors="replace")
 
-            result += text
+            else:
+                result += str(part)
 
-    return result
+        return result
+
+    except Exception:
+        return str(value)
 
 
-# =====================================
-# Check Yahoo Mailbox
-# =====================================
+# ============================================================
+# CHECK ONE MAILBOX
+# ============================================================
 
-def check_mailbox(
-    email_address,
-    password,
-    server
-):
+def check_mailbox(email_address, password):
+
+    result = {
+        "email": email_address,
+        "status": "Starting",
+        "total_unread": 0,
+        "selected": 0,
+        "processed": 0,
+        "seen": 0,
+        "failed": 0,
+        "messages": [],
+        "errors": [],
+        "started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "finished": "",
+    }
 
     mail = None
 
     try:
 
-        # ---------------------------------
-        # Connect to Yahoo IMAP
-        # ---------------------------------
+        # ----------------------------------------------------
+        # CONNECT
+        # ----------------------------------------------------
+
+        result["status"] = "Connecting..."
 
         mail = imaplib.IMAP4_SSL(
-            server,
-            993
+            IMAP_SERVER,
+            IMAP_PORT
         )
 
+        # ----------------------------------------------------
+        # LOGIN
+        # ----------------------------------------------------
 
-        # ---------------------------------
-        # Login
-        # ---------------------------------
+        result["status"] = "Logging in..."
 
         mail.login(
             email_address,
             password
         )
 
+        # ----------------------------------------------------
+        # SELECT INBOX
+        # ----------------------------------------------------
 
-        # ---------------------------------
-        # Select Inbox
-        # ---------------------------------
+        result["status"] = "Opening INBOX..."
 
-        status, _ = mail.select(
-            "INBOX"
+        status, data = mail.select(
+            "INBOX",
+            readonly=False
         )
 
         if status != "OK":
+            raise Exception(
+                "Could not open INBOX"
+            )
 
-            mail.logout()
+        # ----------------------------------------------------
+        # SEARCH ALL UNREAD MAILS
+        # ----------------------------------------------------
 
-            return None, "Could not open Inbox."
+        result["status"] = "Finding unread mails..."
 
-
-        # ---------------------------------
-        # Find ALL Unread Emails
-        # ---------------------------------
-
-        status, data = mail.search(
+        status, data = mail.uid(
+            "search",
             None,
             "UNSEEN"
         )
 
         if status != "OK":
-
-            mail.logout()
-
-            return None, "Could not search unread emails."
-
+            raise Exception(
+                "Unread mail search failed"
+            )
 
         unread_ids = data[0].split()
 
-        unread_count = len(unread_ids)
+        result["total_unread"] = len(unread_ids)
 
+        # ----------------------------------------------------
+        # SELECT FIRST 2000
+        # ----------------------------------------------------
 
-        # ---------------------------------
-        # Process ALL Unread Emails
-        # ---------------------------------
+        selected_ids = unread_ids[
+            :MAX_MESSAGES_PER_ACCOUNT
+        ]
 
-        processed_count = 0
+        result["selected"] = len(selected_ids)
 
-        messages = []
+        # Nothing to process
+        if not selected_ids:
 
+            result["status"] = "No unread mails"
 
-        # We process every unread message.
-        # Only latest 10 are displayed in dashboard.
+            result["finished"] = datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
 
-        for position, msg_id in enumerate(
-            reversed(unread_ids)
-        ):
+            mail.logout()
+
+            return result
+
+        # ----------------------------------------------------
+        # PROCESS EVERY MESSAGE
+        # ----------------------------------------------------
+
+        for index, uid in enumerate(selected_ids, start=1):
 
             try:
 
-                # ---------------------------------
-                # FULL EMAIL FETCH
-                # ---------------------------------
-                #
-                # RFC822 retrieves the complete
-                # email message.
-                #
-                # This can cause Yahoo to mark
-                # the message as Seen/Read.
-                #
+                # --------------------------------------------
+                # FETCH COMPLETE MESSAGE
+                # --------------------------------------------
 
-                status, msg_data = mail.fetch(
-                    msg_id,
+                fetch_status, msg_data = mail.uid(
+                    "fetch",
+                    uid,
                     "(RFC822)"
                 )
 
+                if fetch_status != "OK":
 
-                if status != "OK":
+                    result["failed"] += 1
+
+                    result["errors"].append(
+                        f"UID {uid.decode(errors='replace')}: "
+                        f"RFC822 fetch failed"
+                    )
+
                     continue
-
 
                 raw_email = None
 
+                for response in msg_data:
 
-                for part in msg_data:
+                    if isinstance(response, tuple):
 
-                    if isinstance(part, tuple):
-
-                        raw_email = part[1]
+                        raw_email = response[1]
 
                         break
 
-
                 if not raw_email:
+
+                    result["failed"] += 1
+
+                    result["errors"].append(
+                        f"UID {uid.decode(errors='replace')}: "
+                        f"Empty message data"
+                    )
+
                     continue
 
-
-                # ---------------------------------
-                # Parse Full Email
-                # ---------------------------------
+                # --------------------------------------------
+                # PARSE FULL MESSAGE
+                # --------------------------------------------
 
                 msg = email.message_from_bytes(
                     raw_email
                 )
 
-
-                sender = decode_text(
-                    msg.get("From")
+                from_address = decode_text(
+                    msg.get("From", "")
                 )
 
                 subject = decode_text(
-                    msg.get("Subject")
+                    msg.get("Subject", "")
                 )
 
-                date = msg.get("Date")
+                date_value = decode_text(
+                    msg.get("Date", "")
+                )
 
+                message_id = decode_text(
+                    msg.get("Message-ID", "")
+                )
 
-                # ---------------------------------
-                # Count as processed
-                # ---------------------------------
+                # --------------------------------------------
+                # STORE MESSAGE INFORMATION
+                # --------------------------------------------
 
-                processed_count += 1
-
-
-                # ---------------------------------
-                # Save only latest 10 for display
-                # ---------------------------------
-
-                if len(messages) < 10:
-
-                    messages.append({
-
-                        "from": sender,
-
+                result["messages"].append(
+                    {
+                        "number": index,
+                        "uid": uid.decode(
+                            errors="replace"
+                        ),
+                        "from": from_address,
                         "subject": subject,
-
-                        "date": date
-
-                    })
-
-
-            except Exception:
-                continue
-
-
-        # ---------------------------------
-        # Explicitly Mark ALL Processed
-        # Messages as Seen
-        # ---------------------------------
-
-        # This makes the Read/Seen action
-        # explicit even if Yahoo/IMAP behaviour
-        # differs between fetches.
-
-        for msg_id in unread_ids:
-
-            try:
-
-                mail.store(
-                    msg_id,
-                    "+FLAGS",
-                    "\\Seen"
+                        "date": date_value,
+                        "message_id": message_id,
+                    }
                 )
 
-            except Exception:
-                pass
+                result["processed"] += 1
 
+                # --------------------------------------------
+                # MARK AS SEEN / READ
+                # --------------------------------------------
 
-        # ---------------------------------
-        # Logout
-        # ---------------------------------
+                seen_status, _ = mail.uid(
+                    "store",
+                    uid,
+                    "+FLAGS",
+                    "(\\Seen)"
+                )
+
+                if seen_status == "OK":
+
+                    result["seen"] += 1
+
+                else:
+
+                    result["errors"].append(
+                        f"UID {uid.decode(errors='replace')}: "
+                        f"Fetched but could not mark Seen"
+                    )
+
+                # --------------------------------------------
+                # UPDATE STATUS
+                # --------------------------------------------
+
+                result["status"] = (
+                    f"Processing {index}/"
+                    f"{result['selected']}"
+                )
+
+            except Exception as message_error:
+
+                result["failed"] += 1
+
+                result["errors"].append(
+                    f"UID {uid.decode(errors='replace')}: "
+                    f"{str(message_error)}"
+                )
+
+        # ----------------------------------------------------
+        # FINISHED
+        # ----------------------------------------------------
+
+        result["status"] = "Completed"
+
+        result["finished"] = datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+        try:
+            mail.close()
+        except Exception:
+            pass
 
         try:
             mail.logout()
         except Exception:
             pass
 
+        return result
 
-        # ---------------------------------
-        # Return Result
-        # ---------------------------------
+    except Exception as account_error:
 
-        return {
+        result["status"] = "Failed"
 
-            "unread_count": unread_count,
+        result["errors"].append(
+            str(account_error)
+        )
 
-            "processed_count": processed_count,
-
-            "read_count": processed_count,
-
-            "messages": messages
-
-        }, None
-
-
-    except Exception as e:
+        result["finished"] = datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
 
         try:
-
             if mail:
                 mail.logout()
-
         except Exception:
             pass
 
+        return result
 
-        return None, str(e)
 
-
-# =====================================
-# Create 100 Yahoo Mailboxes
-# =====================================
+# ============================================================
+# LOAD YAHOO ACCOUNTS
+# ============================================================
 
 mailboxes = []
 
-
 for i in range(1, 101):
 
-    mailboxes.append({
-
-        "name": f"Yahoo Mailbox {i}",
-
-        "email": os.getenv(
-            f"YAHOO_EMAIL_{i}"
-        ),
-
-        "password": os.getenv(
-            f"YAHOO_APP_PASSWORD_{i}"
-        ),
-
-        "server": "imap.mail.yahoo.com"
-
-    })
-
-
-# =====================================
-# Dashboard Controls
-# =====================================
-
-st.write("### 📊 Mailbox Monitoring")
-
-
-# =====================================
-# Search
-# =====================================
-
-search = st.text_input(
-
-    "🔍 Search Yahoo mailbox",
-
-    placeholder=(
-        "Search mailbox number or email address..."
+    email_address = os.getenv(
+        f"YAHOO_EMAIL_{i}"
     )
 
-)
+    password = os.getenv(
+        f"YAHOO_APP_PASSWORD_{i}"
+    )
 
+    if email_address and password:
 
-# =====================================
-# Check All Button
-# =====================================
-
-check_all = st.button(
-
-    "🔄 Open & Process All 100 Yahoo Mailboxes",
-
-    type="primary",
-
-    use_container_width=True
-
-)
-
-
-# =====================================
-# Check All 100 Mailboxes
-# =====================================
-
-if check_all:
-
-    progress = st.progress(0)
-
-    status_text = st.empty()
-
-
-    for index, mailbox in enumerate(
-        mailboxes
-    ):
-
-        name = mailbox["name"]
-
-
-        status_text.write(
-
-            f"📧 Opening/processing "
-            f"{name} "
-            f"({index + 1}/100)..."
-
-        )
-
-
-        # ---------------------------------
-        # Missing Credentials
-        # ---------------------------------
-
-        if (
-            not mailbox["email"]
-            or not mailbox["password"]
-        ):
-
-            st.session_state.results[name] = {
-
-                "status": "not_configured",
-
-                "error": "Credentials missing"
-
+        mailboxes.append(
+            {
+                "number": i,
+                "email": email_address,
+                "password": password,
             }
-
-
-        else:
-
-            result, error = check_mailbox(
-
-                mailbox["email"],
-
-                mailbox["password"],
-
-                mailbox["server"]
-
-            )
-
-
-            if error:
-
-                st.session_state.results[name] = {
-
-                    "status": "failed",
-
-                    "error": error
-
-                }
-
-
-            else:
-
-                st.session_state.results[name] = {
-
-                    "status": "connected",
-
-                    "unread_count":
-                        result["unread_count"],
-
-                    "processed_count":
-                        result["processed_count"],
-
-                    "read_count":
-                        result["read_count"],
-
-                    "messages":
-                        result["messages"]
-
-                }
-
-
-            # ---------------------------------
-            # Last Checked Time
-            # ---------------------------------
-
-            st.session_state.last_checked[name] = (
-
-                datetime.now().strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-
-            )
-
-
-        progress.progress(
-            (index + 1) / 100
         )
 
 
-    status_text.success(
+# ============================================================
+# HEADER
+# ============================================================
 
-        "✅ Finished processing all 100 "
-        "Yahoo mailboxes."
+st.title(
+    "📧 Yahoo 100 Mailbox Dashboard"
+)
 
-    )
-
-
-# =====================================
-# Summary
-# =====================================
-
-connected = 0
-
-failed = 0
-
-not_configured = 0
-
-total_unread = 0
-
-total_processed = 0
-
-total_read = 0
+st.caption(
+    "Fetch and mark up to 2,000 unread messages per Yahoo mailbox"
+)
 
 
-for result in (
-    st.session_state.results.values()
-):
+# ============================================================
+# ACCOUNT COUNT
+# ============================================================
 
-    if result["status"] == "connected":
-
-        connected += 1
-
-        total_unread += result.get(
-            "unread_count",
-            0
-        )
-
-        total_processed += result.get(
-            "processed_count",
-            0
-        )
-
-        total_read += result.get(
-            "read_count",
-            0
-        )
-
-
-    elif result["status"] == "failed":
-
-        failed += 1
-
-
-    elif result["status"] == "not_configured":
-
-        not_configured += 1
-
-
-# =====================================
-# Summary Display
-# =====================================
-
-st.divider()
-
-st.write("### 📈 Summary")
-
-
-col1, col2, col3, col4, col5 = st.columns(5)
-
+col1, col2, col3 = st.columns(3)
 
 with col1:
-
     st.metric(
-        "🟢 Connected",
-        connected
+        "Configured Accounts",
+        len(mailboxes)
     )
-
 
 with col2:
-
     st.metric(
-        "🔴 Failed",
-        failed
+        "Max / Account",
+        f"{MAX_MESSAGES_PER_ACCOUNT:,}"
     )
-
 
 with col3:
-
     st.metric(
-        "⚠️ Not Configured",
-        not_configured
+        "Max Total",
+        f"{len(mailboxes) * MAX_MESSAGES_PER_ACCOUNT:,}"
     )
 
 
-with col4:
+# ============================================================
+# SEARCH
+# ============================================================
 
-    st.metric(
-        "📩 Unread Found",
-        total_unread
-    )
-
-
-with col5:
-
-    st.metric(
-        "📖 Processed / Read",
-        total_read
-    )
+search = st.text_input(
+    "🔎 Search mailbox",
+    placeholder="Type Yahoo email address..."
+)
 
 
-# =====================================
-# Individual Mailboxes
-# =====================================
+# ============================================================
+# MAIN BUTTON
+# ============================================================
 
-st.divider()
+if st.button(
+    "🚀 Open & Process Unread Mails",
+    type="primary",
+    use_container_width=True
+):
 
-st.write("### 📬 Yahoo Mailboxes")
+    if not mailboxes:
 
+        st.error(
+            "No Yahoo mailbox environment variables found."
+        )
 
-for mailbox in mailboxes:
+    else:
 
-    name = mailbox["name"]
+        st.session_state.results = {}
 
+        st.session_state.last_checked = (
+            datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+        )
 
-    # =================================
-    # Search Filter
-    # =================================
+        overall_progress = st.progress(0)
 
-    if search:
+        overall_status = st.empty()
 
-        search_text = (
+        total_accounts = len(mailboxes)
 
-            name
-            + " "
-            + str(
-                mailbox["email"] or ""
+        for account_index, account in enumerate(
+            mailboxes,
+            start=1
+        ):
+
+            account_number = account["number"]
+            email_address = account["email"]
+            password = account["password"]
+
+            overall_status.info(
+                f"Account {account_index}/"
+                f"{total_accounts}: "
+                f"{email_address}"
             )
 
-        ).lower()
+            result = check_mailbox(
+                email_address,
+                password
+            )
+
+            st.session_state.results[
+                email_address
+            ] = result
+
+            overall_progress.progress(
+                account_index / total_accounts
+            )
+
+        overall_status.success(
+            "Finished processing all configured accounts."
+        )
 
 
-        if search.lower() not in search_text:
+# ============================================================
+# LAST CHECKED
+# ============================================================
+
+if st.session_state.last_checked:
+
+    st.caption(
+        f"Last run: "
+        f"{st.session_state.last_checked}"
+    )
+
+
+# ============================================================
+# SUMMARY
+# ============================================================
+
+if st.session_state.results:
+
+    results = list(
+        st.session_state.results.values()
+    )
+
+    total_unread = sum(
+        r["total_unread"]
+        for r in results
+    )
+
+    total_selected = sum(
+        r["selected"]
+        for r in results
+    )
+
+    total_processed = sum(
+        r["processed"]
+        for r in results
+    )
+
+    total_seen = sum(
+        r["seen"]
+        for r in results
+    )
+
+    total_failed = sum(
+        r["failed"]
+        for r in results
+    )
+
+    st.subheader("📊 Overall Summary")
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    with c1:
+        st.metric(
+            "Unread Found",
+            f"{total_unread:,}"
+        )
+
+    with c2:
+        st.metric(
+            "Selected",
+            f"{total_selected:,}"
+        )
+
+    with c3:
+        st.metric(
+            "Fetched",
+            f"{total_processed:,}"
+        )
+
+    with c4:
+        st.metric(
+            "Marked Seen",
+            f"{total_seen:,}"
+        )
+
+    with c5:
+        st.metric(
+            "Failed",
+            f"{total_failed:,}"
+        )
+
+
+# ============================================================
+# INDIVIDUAL ACCOUNTS
+# ============================================================
+
+st.subheader("📬 Mailboxes")
+
+
+for account in mailboxes:
+
+    email_address = account["email"]
+    account_number = account["number"]
+
+    # Search filtering
+    if search:
+
+        if search.lower() not in email_address.lower():
 
             continue
 
-
-    # =================================
-    # Previous Result
-    # =================================
-
     result = st.session_state.results.get(
-        name
+        email_address
     )
 
+    with st.container(border=True):
 
-    # =================================
-    # Mailbox Layout
-    # =================================
+        # ----------------------------------------------------
+        # ACCOUNT HEADER
+        # ----------------------------------------------------
 
-    col1, col2, col3 = st.columns(
-        [3, 3, 1]
-    )
-
-
-    # =================================
-    # Mailbox Name
-    # =================================
-
-    with col1:
-
-        st.write(
-            f"**{name}**"
+        left, right = st.columns(
+            [4, 1]
         )
 
+        with left:
 
-        if mailbox["email"]:
-
-            st.caption(
-                mailbox["email"]
+            st.markdown(
+                f"### {account_number}. "
+                f"{email_address}"
             )
 
-        else:
+        with right:
 
-            st.caption(
-                "Not configured"
-            )
-
-
-    # =================================
-    # Status
-    # =================================
-
-    with col2:
-
-        if not result:
-
-            st.write(
-                "⚪ Not checked yet"
-            )
-
-
-        elif result["status"] == "connected":
-
-            st.success(
-
-                f"🟢 Connected | "
-                f"Found: "
-                f"{result['unread_count']} | "
-                f"Read: "
-                f"{result.get('read_count', 0)}"
-
-            )
-
-
-        elif result["status"] == "failed":
-
-            st.error(
-                "🔴 Connection failed"
-            )
-
-
-        else:
-
-            st.warning(
-                "⚠️ Not configured"
-            )
-
-
-    # =================================
-    # Individual Check Button
-    # =================================
-
-    with col3:
-
-        check_button = st.button(
-
-            "📖 Open",
-
-            key=f"check_{name}"
-
-        )
-
-
-        if check_button:
-
-
-            if (
-                not mailbox["email"]
-                or not mailbox["password"]
+            if st.button(
+                "▶ Open",
+                key=f"open_{account_number}",
+                use_container_width=True
             ):
 
-                st.warning(
-                    "Credentials missing."
+                with st.spinner(
+                    f"Processing {email_address}..."
+                ):
+
+                    result = check_mailbox(
+                        email_address,
+                        account["password"]
+                    )
+
+                    st.session_state.results[
+                        email_address
+                    ] = result
+
+                    st.session_state.last_checked = (
+                        datetime.now().strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                    )
+
+                    st.rerun()
+
+        # ----------------------------------------------------
+        # RESULT
+        # ----------------------------------------------------
+
+        if result:
+
+            status = result["status"]
+
+            if status == "Completed":
+
+                st.success(
+                    "Completed"
                 )
 
+            elif status == "No unread mails":
+
+                st.info(
+                    "No unread mails"
+                )
+
+            elif status == "Failed":
+
+                st.error(
+                    "Account failed"
+                )
 
             else:
 
-                with st.spinner(
-
-                    f"Opening/processing "
-                    f"{name}..."
-
-                ):
-
-                    result, error = check_mailbox(
-
-                        mailbox["email"],
-
-                        mailbox["password"],
-
-                        mailbox["server"]
-
-                    )
-
-
-                # ---------------------------------
-                # Error
-                # ---------------------------------
-
-                if error:
-
-                    st.session_state.results[name] = {
-
-                        "status": "failed",
-
-                        "error": error
-
-                    }
-
-
-                    st.session_state.last_checked[name] = (
-
-                        datetime.now().strftime(
-                            "%Y-%m-%d %H:%M:%S"
-                        )
-
-                    )
-
-
-                    st.error(
-                        f"🔴 {error}"
-                    )
-
-
-                # ---------------------------------
-                # Success
-                # ---------------------------------
-
-                else:
-
-                    st.session_state.results[name] = {
-
-                        "status": "connected",
-
-                        "unread_count":
-                            result["unread_count"],
-
-                        "processed_count":
-                            result["processed_count"],
-
-                        "read_count":
-                            result["read_count"],
-
-                        "messages":
-                            result["messages"]
-
-                    }
-
-
-                    st.session_state.last_checked[name] = (
-
-                        datetime.now().strftime(
-                            "%Y-%m-%d %H:%M:%S"
-                        )
-
-                    )
-
-
-                    st.success(
-
-                        f"📖 Processed "
-                        f"{result['read_count']} "
-                        f"unread email(s)."
-
-                    )
-
-
-    # =================================
-    # Last Checked
-    # =================================
-
-    if name in st.session_state.last_checked:
-
-        st.caption(
-
-            "🕐 Last checked: "
-            + st.session_state.last_checked[name]
-
-        )
-
-
-    # =================================
-    # Show Processed Emails
-    # =================================
-
-    if (
-
-        result
-        and result["status"] == "connected"
-
-    ):
-
-        messages = result.get(
-            "messages",
-            []
-        )
-
-
-        if messages:
-
-            with st.expander(
-                "📖 Latest processed emails"
-            ):
-
-
-                for message in messages:
-
-                    st.write(
-
-                        f"**From:** "
-                        f"{message['from']}"
-
-                    )
-
-
-                    st.write(
-
-                        f"**Subject:** "
-                        f"{message['subject']}"
-
-                    )
-
-
-                    st.write(
-
-                        f"**Date:** "
-                        f"{message['date']}"
-
-                    )
-
-
-                    st.divider()
-
-
-    # =================================
-    # Error Details
-    # =================================
-
-    elif (
-
-        result
-        and result["status"] == "failed"
-
-    ):
-
-        with st.expander(
-            "⚠️ Error details"
-        ):
-
-            st.code(
-
-                result.get(
-                    "error",
-                    "Unknown error"
+                st.warning(
+                    status
                 )
 
+            # ------------------------------------------------
+            # ACCOUNT METRICS
+            # ------------------------------------------------
+
+            a, b, c, d, e = st.columns(5)
+
+            with a:
+                st.metric(
+                    "Unread",
+                    f"{result['total_unread']:,}"
+                )
+
+            with b:
+                st.metric(
+                    "Selected",
+                    f"{result['selected']:,}"
+                )
+
+            with c:
+                st.metric(
+                    "Fetched",
+                    f"{result['processed']:,}"
+                )
+
+            with d:
+                st.metric(
+                    "Seen",
+                    f"{result['seen']:,}"
+                )
+
+            with e:
+                st.metric(
+                    "Failed",
+                    f"{result['failed']:,}"
+                )
+
+            # ------------------------------------------------
+            # LIMIT NOTICE
+            # ------------------------------------------------
+
+            if (
+                result["total_unread"]
+                > MAX_MESSAGES_PER_ACCOUNT
+            ):
+
+                st.warning(
+                    f"This mailbox has "
+                    f"{result['total_unread']:,} unread "
+                    f"messages. Only the first "
+                    f"{MAX_MESSAGES_PER_ACCOUNT:,} "
+                    f"were processed."
+                )
+
+            # ------------------------------------------------
+            # PROCESSED MAILS
+            # ------------------------------------------------
+
+            if result["messages"]:
+
+                with st.expander(
+                    f"📨 Processed messages "
+                    f"({len(result['messages']):,})"
+                ):
+
+                    # Show latest 20 in dashboard
+                    # Full messages were still fetched.
+                    display_messages = (
+                        result["messages"][-20:]
+                    )
+
+                    for message in reversed(
+                        display_messages
+                    ):
+
+                        st.markdown(
+                            f"**#{message['number']}**  "
+                            f"UID: `{message['uid']}`"
+                        )
+
+                        st.write(
+                            f"**From:** "
+                            f"{message['from']}"
+                        )
+
+                        st.write(
+                            f"**Subject:** "
+                            f"{message['subject']}"
+                        )
+
+                        st.write(
+                            f"**Date:** "
+                            f"{message['date']}"
+                        )
+
+                        if message["message_id"]:
+
+                            st.caption(
+                                f"Message-ID: "
+                                f"{message['message_id']}"
+                            )
+
+                        st.divider()
+
+            # ------------------------------------------------
+            # ERRORS
+            # ------------------------------------------------
+
+            if result["errors"]:
+
+                with st.expander(
+                    f"⚠️ Errors "
+                    f"({len(result['errors']):,})"
+                ):
+
+                    for error in result["errors"][:100]:
+
+                        st.error(
+                            error
+                        )
+
+                    if len(result["errors"]) > 100:
+
+                        st.caption(
+                            "Only first 100 errors "
+                            "are displayed."
+                        )
+
+            # ------------------------------------------------
+            # TIMES
+            # ------------------------------------------------
+
+            st.caption(
+                f"Started: {result['started']} | "
+                f"Finished: {result['finished']}"
             )
-```
+
+        else:
+
+            st.caption(
+                "Not checked yet."
+            )
