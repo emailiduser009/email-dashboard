@@ -12,12 +12,11 @@ import streamlit as st
 
 IMAP_SERVER = "imap.mail.yahoo.com"
 IMAP_PORT = 993
-
 MAX_MESSAGES_PER_ACCOUNT = 2000
 
 
 # ============================================================
-# PAGE
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -25,6 +24,79 @@ st.set_page_config(
     page_icon="📧",
     layout="wide"
 )
+
+
+# ============================================================
+# LOGIN
+# ============================================================
+
+def login_page():
+
+    st.title("🔐 Login")
+
+    st.write("Enter your dashboard username and password.")
+
+    username = st.text_input(
+        "Username",
+        placeholder="Enter username"
+    )
+
+    password = st.text_input(
+        "Password",
+        type="password",
+        placeholder="Enter password"
+    )
+
+    if st.button(
+        "LOGIN",
+        type="primary",
+        use_container_width=True
+    ):
+
+        correct_username = os.getenv(
+            "DASHBOARD_USERNAME",
+            ""
+        )
+
+        correct_password = os.getenv(
+            "DASHBOARD_PASSWORD",
+            ""
+        )
+
+        if (
+            username == correct_username
+            and password == correct_password
+        ):
+
+            st.session_state.logged_in = True
+
+            st.rerun()
+
+        else:
+
+            st.error(
+                "❌ Invalid username or password"
+            )
+
+
+# ============================================================
+# LOGIN STATE
+# ============================================================
+
+if "logged_in" not in st.session_state:
+
+    st.session_state.logged_in = False
+
+
+# ============================================================
+# SHOW LOGIN
+# ============================================================
+
+if not st.session_state.logged_in:
+
+    login_page()
+
+    st.stop()
 
 
 # ============================================================
@@ -45,7 +117,33 @@ if "last_checked" not in st.session_state:
 
 
 # ============================================================
-# DECODE HEADER
+# LOGOUT
+# ============================================================
+
+top_left, top_right = st.columns(
+    [6, 1]
+)
+
+with top_right:
+
+    if st.button(
+        "Logout",
+        use_container_width=True
+    ):
+
+        st.session_state.logged_in = False
+
+        st.session_state.processing = False
+
+        st.session_state.stop_requested = True
+
+        st.session_state.results = {}
+
+        st.rerun()
+
+
+# ============================================================
+# DECODE TEXT
 # ============================================================
 
 def decode_text(value):
@@ -64,46 +162,65 @@ def decode_text(value):
             if isinstance(part, bytes):
 
                 try:
+
                     output += part.decode(
                         encoding or "utf-8",
                         errors="replace"
                     )
 
                 except Exception:
+
                     output += part.decode(
                         "utf-8",
                         errors="replace"
                     )
 
             else:
+
                 output += str(part)
 
         return output
 
     except Exception:
+
         return str(value)
 
 
 # ============================================================
-# CHECK / PROCESS ONE MAILBOX
+# CHECK ONE MAILBOX
 # ============================================================
 
-def check_mailbox(email_address, password):
+def check_mailbox(
+    email_address,
+    password
+):
 
     result = {
+
         "email": email_address,
+
         "status": "Starting",
+
         "total_unread": 0,
+
         "selected": 0,
+
         "processed": 0,
+
         "seen": 0,
+
         "failed": 0,
+
         "messages": [],
+
         "errors": [],
+
         "started": datetime.now().strftime(
             "%Y-%m-%d %H:%M:%S"
         ),
+
         "finished": "",
+
         "stopped": False
     }
 
@@ -123,7 +240,7 @@ def check_mailbox(email_address, password):
         )
 
         # ----------------------------------------------------
-        # LOGIN
+        # LOGIN TO YAHOO MAILBOX
         # ----------------------------------------------------
 
         result["status"] = "Logging in..."
@@ -134,7 +251,7 @@ def check_mailbox(email_address, password):
         )
 
         # ----------------------------------------------------
-        # INBOX
+        # OPEN INBOX
         # ----------------------------------------------------
 
         result["status"] = "Opening INBOX..."
@@ -145,6 +262,7 @@ def check_mailbox(email_address, password):
         )
 
         if status != "OK":
+
             raise Exception(
                 "Could not open INBOX"
             )
@@ -153,7 +271,9 @@ def check_mailbox(email_address, password):
         # FIND UNREAD
         # ----------------------------------------------------
 
-        result["status"] = "Finding unread mails..."
+        result["status"] = (
+            "Finding unread mails..."
+        )
 
         status, data = mail.uid(
             "search",
@@ -162,13 +282,16 @@ def check_mailbox(email_address, password):
         )
 
         if status != "OK":
+
             raise Exception(
                 "Unread mail search failed"
             )
 
         unread_ids = data[0].split()
 
-        result["total_unread"] = len(unread_ids)
+        result["total_unread"] = len(
+            unread_ids
+        )
 
         # ----------------------------------------------------
         # MAX 2000
@@ -178,14 +301,20 @@ def check_mailbox(email_address, password):
             :MAX_MESSAGES_PER_ACCOUNT
         ]
 
-        result["selected"] = len(selected_ids)
+        result["selected"] = len(
+            selected_ids
+        )
 
         if not selected_ids:
 
-            result["status"] = "No unread mails"
+            result["status"] = (
+                "No unread mails"
+            )
 
-            result["finished"] = datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
+            result["finished"] = (
+                datetime.now().strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
             )
 
             try:
@@ -196,7 +325,7 @@ def check_mailbox(email_address, password):
             return result
 
         # ----------------------------------------------------
-        # PROCESS MAILS
+        # PROCESS EACH MAIL
         # ----------------------------------------------------
 
         for index, uid in enumerate(
@@ -210,7 +339,9 @@ def check_mailbox(email_address, password):
 
             if st.session_state.stop_requested:
 
-                result["status"] = "Stopped"
+                result["status"] = (
+                    "Stopped by user"
+                )
 
                 result["stopped"] = True
 
@@ -238,7 +369,8 @@ def check_mailbox(email_address, password):
                     result["failed"] += 1
 
                     result["errors"].append(
-                        f"UID {uid.decode(errors='replace')}: "
+                        f"UID "
+                        f"{uid.decode(errors='replace')}: "
                         f"Fetch failed"
                     )
 
@@ -248,7 +380,10 @@ def check_mailbox(email_address, password):
 
                 for response in msg_data:
 
-                    if isinstance(response, tuple):
+                    if isinstance(
+                        response,
+                        tuple
+                    ):
 
                         raw_email = response[1]
 
@@ -259,14 +394,15 @@ def check_mailbox(email_address, password):
                     result["failed"] += 1
 
                     result["errors"].append(
-                        f"UID {uid.decode(errors='replace')}: "
+                        f"UID "
+                        f"{uid.decode(errors='replace')}: "
                         f"Empty message"
                     )
 
                     continue
 
                 # --------------------------------------------
-                # PARSE MESSAGE
+                # PARSE EMAIL
                 # --------------------------------------------
 
                 msg = email.message_from_bytes(
@@ -290,18 +426,23 @@ def check_mailbox(email_address, password):
                 )
 
                 # --------------------------------------------
-                # SAVE INFORMATION
+                # SAVE MESSAGE INFORMATION
                 # --------------------------------------------
 
                 result["messages"].append(
                     {
                         "number": index,
+
                         "uid": uid.decode(
                             errors="replace"
                         ),
+
                         "from": from_address,
+
                         "subject": subject,
+
                         "date": date_value,
+
                         "message_id": message_id
                     }
                 )
@@ -309,7 +450,7 @@ def check_mailbox(email_address, password):
                 result["processed"] += 1
 
                 # --------------------------------------------
-                # MARK SEEN
+                # MARK AS SEEN
                 # --------------------------------------------
 
                 result["status"] = (
@@ -331,7 +472,8 @@ def check_mailbox(email_address, password):
                 else:
 
                     result["errors"].append(
-                        f"UID {uid.decode(errors='replace')}: "
+                        f"UID "
+                        f"{uid.decode(errors='replace')}: "
                         f"Could not mark Seen"
                     )
 
@@ -340,7 +482,8 @@ def check_mailbox(email_address, password):
                 result["failed"] += 1
 
                 result["errors"].append(
-                    f"UID {uid.decode(errors='replace')}: "
+                    f"UID "
+                    f"{uid.decode(errors='replace')}: "
                     f"{str(message_error)}"
                 )
 
@@ -350,14 +493,20 @@ def check_mailbox(email_address, password):
 
         if result["stopped"]:
 
-            result["status"] = "Stopped by user"
+            result["status"] = (
+                "Stopped by user"
+            )
 
         else:
 
-            result["status"] = "Completed"
+            result["status"] = (
+                "Completed"
+            )
 
-        result["finished"] = datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
+        result["finished"] = (
+            datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
         )
 
         try:
@@ -380,8 +529,10 @@ def check_mailbox(email_address, password):
             str(account_error)
         )
 
-        result["finished"] = datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
+        result["finished"] = (
+            datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
         )
 
         try:
@@ -396,7 +547,7 @@ def check_mailbox(email_address, password):
 
 
 # ============================================================
-# LOAD 100 YAHOO ACCOUNTS
+# LOAD YAHOO ACCOUNTS
 # ============================================================
 
 mailboxes = []
@@ -416,7 +567,9 @@ for i in range(1, 101):
         mailboxes.append(
             {
                 "number": i,
+
                 "email": email_address,
+
                 "password": password
             }
         )
@@ -494,14 +647,13 @@ with stop_col:
 
     stop_clicked = st.button(
         "🛑 STOP",
-        type="secondary",
         use_container_width=True,
         disabled=not st.session_state.processing
     )
 
 
 # ============================================================
-# STOP BUTTON
+# STOP
 # ============================================================
 
 if stop_clicked:
@@ -509,13 +661,13 @@ if stop_clicked:
     st.session_state.stop_requested = True
 
     st.warning(
-        "Stop requested. Current mail operation will finish, "
-        "then processing will stop."
+        "🛑 Stop requested. "
+        "Current IMAP operation will finish first."
     )
 
 
 # ============================================================
-# START BUTTON
+# START
 # ============================================================
 
 if start_clicked:
@@ -547,7 +699,7 @@ if start_clicked:
         total_accounts = len(mailboxes)
 
         # ----------------------------------------------------
-        # PROCESS ALL ACCOUNTS
+        # PROCESS ACCOUNTS
         # ----------------------------------------------------
 
         for account_index, account in enumerate(
@@ -562,7 +714,7 @@ if start_clicked:
             if st.session_state.stop_requested:
 
                 overall_status.warning(
-                    "🛑 Processing stopped by user."
+                    "🛑 Processing stopped."
                 )
 
                 break
@@ -576,7 +728,7 @@ if start_clicked:
             )
 
             # -----------------------------------------------
-            # PROCESS ACCOUNT
+            # PROCESS
             # -----------------------------------------------
 
             result = check_mailbox(
@@ -589,7 +741,7 @@ if start_clicked:
             ] = result
 
             # -----------------------------------------------
-            # PROGRESS
+            # ACCOUNT PROGRESS
             # -----------------------------------------------
 
             overall_progress.progress(
@@ -597,13 +749,13 @@ if start_clicked:
             )
 
             # -----------------------------------------------
-            # STOP AFTER CURRENT ACCOUNT
+            # STOP
             # -----------------------------------------------
 
             if st.session_state.stop_requested:
 
                 overall_status.warning(
-                    "🛑 Processing stopped."
+                    "🛑 Processing stopped by user."
                 )
 
                 break
@@ -626,20 +778,14 @@ if start_clicked:
 
 
 # ============================================================
-# STATUS
+# PROCESSING STATUS
 # ============================================================
 
 if st.session_state.processing:
 
     st.info(
         "🟢 Processing is running. "
-        "You can use STOP to stop after the current operation."
-    )
-
-elif st.session_state.stop_requested:
-
-    st.warning(
-        "🛑 Processing is stopped."
+        "Use STOP to stop after the current operation."
     )
 
 
@@ -747,7 +893,7 @@ for account in mailboxes:
     email_address = account["email"]
 
     # --------------------------------------------------------
-    # SEARCH FILTER
+    # SEARCH
     # --------------------------------------------------------
 
     if search:
@@ -816,7 +962,7 @@ for account in mailboxes:
             st.rerun()
 
         # ----------------------------------------------------
-        # RESULT DISPLAY
+        # RESULT
         # ----------------------------------------------------
 
         if result:
@@ -852,7 +998,7 @@ for account in mailboxes:
                 )
 
             # ------------------------------------------------
-            # ACCOUNT METRICS
+            # METRICS
             # ------------------------------------------------
 
             a, b, c, d, e = st.columns(5)
@@ -893,7 +1039,7 @@ for account in mailboxes:
                 )
 
             # ------------------------------------------------
-            # 2000 LIMIT
+            # LIMIT
             # ------------------------------------------------
 
             if (
@@ -902,14 +1048,15 @@ for account in mailboxes:
             ):
 
                 st.warning(
-                    f"Unread count is "
-                    f"{result['total_unread']:,}. "
+                    f"This mailbox has "
+                    f"{result['total_unread']:,} unread "
+                    f"messages. "
                     f"Maximum per run is "
                     f"{MAX_MESSAGES_PER_ACCOUNT:,}."
                 )
 
             # ------------------------------------------------
-            # MESSAGES
+            # PROCESSED MAILS
             # ------------------------------------------------
 
             if result["messages"]:
@@ -919,8 +1066,8 @@ for account in mailboxes:
                     f"({len(result['messages']):,})"
                 ):
 
-                    # Only display latest 20
-                    # All selected messages were fetched.
+                    # Dashboard display only.
+                    # All selected messages are fetched.
 
                     display_messages = (
                         result["messages"][-20:]
