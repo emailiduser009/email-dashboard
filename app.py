@@ -3,6 +3,7 @@ import imaplib
 import email
 from email.header import decode_header
 from datetime import datetime
+
 import streamlit as st
 
 
@@ -11,7 +12,7 @@ import streamlit as st
 # ============================================================
 
 st.set_page_config(
-    page_title="Yahoo Mail Dashboard",
+    page_title="Yahoo Mailbox Dashboard",
     page_icon="📬",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -19,28 +20,28 @@ st.set_page_config(
 
 
 # ============================================================
-# CUSTOM CSS
+# CSS
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* ======================================================
+    /* =========================
        GLOBAL
-       ====================================================== */
+       ========================= */
 
     .stApp {
         background:
             radial-gradient(
-                circle at 15% 10%,
-                rgba(124, 92, 255, 0.13),
-                transparent 30%
+                circle at 10% 10%,
+                rgba(109, 93, 252, 0.10),
+                transparent 28%
             ),
             radial-gradient(
-                circle at 85% 20%,
-                rgba(0, 180, 216, 0.10),
-                transparent 30%
+                circle at 90% 15%,
+                rgba(76, 139, 245, 0.09),
+                transparent 28%
             ),
             linear-gradient(
                 135deg,
@@ -55,7 +56,6 @@ st.markdown(
         max-width: 1400px;
     }
 
-    /* Hide Streamlit decoration */
     #MainMenu {
         visibility: hidden;
     }
@@ -69,308 +69,399 @@ st.markdown(
     }
 
 
-    /* ======================================================
-       LOGIN PAGE
-       ====================================================== */
+    /* =========================
+       LOGIN
+       ========================= */
 
-    .login-page-space {
-        height: 5vh;
+    .login-space {
+        height: 6vh;
     }
 
     .login-marker {
-        height: 1px;
-        width: 1px;
-        overflow: hidden;
+        display: none;
     }
 
     [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker) {
         max-width: 470px;
         margin-left: auto;
         margin-right: auto;
+
         padding: 32px 34px 30px 34px;
+
         border-radius: 24px;
+
         border: 1px solid rgba(120, 130, 160, 0.20);
-        background: rgba(255, 255, 255, 0.94);
+
+        background: rgba(255, 255, 255, 0.96);
+
         box-shadow:
-            0 20px 60px rgba(25, 35, 65, 0.12),
-            0 4px 18px rgba(25, 35, 65, 0.05);
+            0 25px 70px rgba(25, 35, 65, 0.12),
+            0 5px 20px rgba(25, 35, 65, 0.05);
+
         backdrop-filter: blur(12px);
     }
 
     .login-logo {
-        width: 70px;
-        height: 70px;
-        margin: 0 auto 16px auto;
-        border-radius: 20px;
+        width: 68px;
+        height: 68px;
+
+        margin: 0 auto 17px auto;
+
+        border-radius: 19px;
+
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 34px;
+
+        font-size: 32px;
+
         background:
             linear-gradient(
                 135deg,
                 #6d5dfc,
                 #4c8bf5
             );
+
         box-shadow:
-            0 12px 28px rgba(88, 82, 220, 0.25);
+            0 12px 30px rgba(88, 82, 220, 0.25);
     }
 
     .login-title {
         text-align: center;
-        font-size: 28px;
+
+        font-size: 27px;
         font-weight: 750;
+
         color: #20243a;
-        margin-bottom: 5px;
+
         letter-spacing: -0.5px;
+
+        margin-bottom: 5px;
     }
 
     .login-subtitle {
         text-align: center;
-        color: #72788c;
-        font-size: 14px;
+
+        color: #7b8193;
+
+        font-size: 13px;
+
         margin-bottom: 22px;
     }
 
-    [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker)
-    label {
+    [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker) label {
         color: #42485c !important;
-        font-weight: 600 !important;
         font-size: 13px !important;
+        font-weight: 650 !important;
     }
 
-    [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker)
-    input {
-        border-radius: 11px !important;
-        border: 1px solid #dce0ea !important;
-        background: #fafbfe !important;
+    [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker) input {
         min-height: 45px !important;
+
+        border-radius: 11px !important;
+
+        border: 1px solid #dce0ea !important;
+
+        background: #fafbfe !important;
+
         padding-left: 13px !important;
     }
 
     [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker)
     input:focus {
         border-color: #6d5dfc !important;
-        box-shadow: 0 0 0 2px rgba(109, 93, 252, 0.10) !important;
-    }
 
-    .login-note {
-        text-align: center;
-        color: #969bad;
-        font-size: 12px;
-        margin-top: 15px;
-    }
-
-
-    /* ======================================================
-       DASHBOARD HEADER
-       ====================================================== */
-
-    .dashboard-hero {
-        padding: 25px 28px;
-        border-radius: 22px;
-        background:
-            linear-gradient(
-                135deg,
-                rgba(255,255,255,0.96),
-                rgba(247,248,253,0.96)
-            );
-        border: 1px solid rgba(120,130,160,0.17);
         box-shadow:
-            0 12px 35px rgba(25,35,65,0.07);
-        margin-bottom: 22px;
+            0 0 0 2px rgba(109, 93, 252, 0.10) !important;
     }
-
-    .hero-row {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-    }
-
-    .hero-icon {
-        width: 58px;
-        height: 58px;
-        border-radius: 17px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 29px;
-        background:
-            linear-gradient(
-                135deg,
-                #6d5dfc,
-                #4c8bf5
-            );
-        box-shadow:
-            0 10px 25px rgba(88,82,220,0.20);
-    }
-
-    .hero-title {
-        font-size: 28px;
-        font-weight: 750;
-        color: #20243a;
-        margin: 0;
-        letter-spacing: -0.5px;
-    }
-
-    .hero-subtitle {
-        color: #7b8193;
-        font-size: 13px;
-        margin-top: 4px;
-    }
-
-
-    /* ======================================================
-       METRIC CARDS
-       ====================================================== */
-
-    .metric-card {
-        padding: 18px 20px;
-        min-height: 110px;
-        border-radius: 18px;
-        background: rgba(255,255,255,0.94);
-        border: 1px solid rgba(120,130,160,0.16);
-        box-shadow: 0 8px 25px rgba(25,35,65,0.055);
-    }
-
-    .metric-label {
-        color: #858b9d;
-        font-size: 12px;
-        font-weight: 600;
-        margin-bottom: 7px;
-    }
-
-    .metric-value {
-        color: #25293c;
-        font-size: 28px;
-        font-weight: 750;
-        line-height: 1;
-    }
-
-
-    /* ======================================================
-       SECTION TITLES
-       ====================================================== */
-
-    .section-title {
-        color: #292d40;
-        font-size: 19px;
-        font-weight: 720;
-        margin-top: 12px;
-        margin-bottom: 4px;
-    }
-
-    .section-subtitle {
-        color: #858b9d;
-        font-size: 12px;
-        margin-bottom: 12px;
-    }
-
-
-    /* ======================================================
-       MAILBOX CARDS
-       ====================================================== */
-
-    [data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 17px;
-        border-color: rgba(120,130,160,0.17);
-        background: rgba(255,255,255,0.90);
-        box-shadow: 0 6px 20px rgba(25,35,65,0.045);
-    }
-
-    .mailbox-title {
-        font-size: 15px;
-        font-weight: 700;
-        color: #2d3144;
-        margin-bottom: 2px;
-    }
-
-    .mailbox-email {
-        font-size: 12px;
-        color: #808699;
-    }
-
-    .mailbox-status {
-        display: inline-block;
-        padding: 4px 9px;
-        border-radius: 20px;
-        font-size: 11px;
-        font-weight: 650;
-        margin-top: 7px;
-        background: #eef1f8;
-        color: #626a7f;
-    }
-
-
-    /* ======================================================
-       BUTTONS
-       ====================================================== */
-
-    .stButton > button {
-        border-radius: 10px !important;
-        min-height: 40px !important;
-        font-weight: 650 !important;
-        border: 1px solid #dce0ea !important;
-        background: #ffffff !important;
-        color: #34394c !important;
-        transition: all 0.18s ease !important;
-    }
-
-    .stButton > button:hover {
-        border-color: #6d5dfc !important;
-        color: #5b4ce0 !important;
-        box-shadow: 0 5px 16px rgba(80,70,200,0.10) !important;
-    }
-
-
-    /* Login button */
 
     [data-testid="stFormSubmitButton"] button {
-        border: none !important;
-        border-radius: 11px !important;
         min-height: 46px !important;
+
+        border: none !important;
+
+        border-radius: 11px !important;
+
         background:
             linear-gradient(
                 135deg,
                 #6d5dfc,
                 #4c8bf5
             ) !important;
+
         color: white !important;
+
         font-weight: 700 !important;
+
         box-shadow:
-            0 8px 20px rgba(88,82,220,0.20) !important;
+            0 8px 22px rgba(88, 82, 220, 0.22) !important;
     }
 
     [data-testid="stFormSubmitButton"] button:hover {
-        box-shadow:
-            0 10px 25px rgba(88,82,220,0.30) !important;
         transform: translateY(-1px);
+
+        box-shadow:
+            0 11px 28px rgba(88, 82, 220, 0.30) !important;
+    }
+
+    .login-note {
+        text-align: center;
+
+        color: #9a9fb0;
+
+        font-size: 11px;
+
+        margin-top: 15px;
     }
 
 
-    /* ======================================================
-       SEARCH
-       ====================================================== */
+    /* =========================
+       DASHBOARD HEADER
+       ========================= */
+
+    .dashboard-header {
+        display: flex;
+
+        align-items: center;
+
+        gap: 15px;
+
+        padding: 22px 25px;
+
+        border-radius: 20px;
+
+        background: rgba(255, 255, 255, 0.95);
+
+        border: 1px solid rgba(120, 130, 160, 0.17);
+
+        box-shadow:
+            0 10px 30px rgba(25, 35, 65, 0.06);
+
+        margin-bottom: 22px;
+    }
+
+    .dashboard-icon {
+        width: 55px;
+        height: 55px;
+
+        flex-shrink: 0;
+
+        border-radius: 16px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        font-size: 28px;
+
+        background:
+            linear-gradient(
+                135deg,
+                #6d5dfc,
+                #4c8bf5
+            );
+
+        box-shadow:
+            0 10px 25px rgba(88, 82, 220, 0.20);
+    }
+
+    .dashboard-title {
+        font-size: 26px;
+
+        font-weight: 750;
+
+        color: #20243a;
+
+        line-height: 1.2;
+
+        letter-spacing: -0.5px;
+    }
+
+    .dashboard-subtitle {
+        font-size: 13px;
+
+        color: #7b8193;
+
+        margin-top: 4px;
+    }
+
+
+    /* =========================
+       SECTION
+       ========================= */
+
+    .section-title {
+        font-size: 19px;
+
+        font-weight: 720;
+
+        color: #292d40;
+
+        margin-top: 10px;
+
+        margin-bottom: 3px;
+    }
+
+    .section-subtitle {
+        font-size: 12px;
+
+        color: #858b9d;
+
+        margin-bottom: 13px;
+    }
+
+
+    /* =========================
+       METRIC CARDS
+       ========================= */
+
+    .metric-card {
+        min-height: 105px;
+
+        padding: 18px 20px;
+
+        border-radius: 17px;
+
+        background: rgba(255, 255, 255, 0.94);
+
+        border: 1px solid rgba(120, 130, 160, 0.16);
+
+        box-shadow:
+            0 7px 22px rgba(25, 35, 65, 0.05);
+    }
+
+    .metric-label {
+        color: #858b9d;
+
+        font-size: 11px;
+
+        font-weight: 650;
+
+        letter-spacing: 0.3px;
+
+        margin-bottom: 8px;
+    }
+
+    .metric-value {
+        color: #25293c;
+
+        font-size: 27px;
+
+        font-weight: 750;
+
+        line-height: 1;
+    }
+
+
+    /* =========================
+       MAILBOX CARDS
+       ========================= */
+
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        border-radius: 17px;
+
+        border-color: rgba(120, 130, 160, 0.17);
+
+        background: rgba(255, 255, 255, 0.92);
+
+        box-shadow:
+            0 6px 20px rgba(25, 35, 65, 0.045);
+    }
+
+    .mailbox-title {
+        color: #2d3144;
+
+        font-size: 15px;
+
+        font-weight: 700;
+
+        margin-bottom: 3px;
+    }
+
+    .mailbox-email {
+        color: #808699;
+
+        font-size: 12px;
+
+        word-break: break-all;
+    }
+
+    .mailbox-status {
+        display: inline-block;
+
+        margin-top: 8px;
+
+        padding: 4px 9px;
+
+        border-radius: 20px;
+
+        background: #f0f2f8;
+
+        color: #626a7f;
+
+        font-size: 10px;
+
+        font-weight: 650;
+    }
+
+
+    /* =========================
+       BUTTONS
+       ========================= */
+
+    .stButton > button {
+        min-height: 40px !important;
+
+        border-radius: 10px !important;
+
+        border: 1px solid #dce0ea !important;
+
+        background: #ffffff !important;
+
+        color: #34394c !important;
+
+        font-weight: 650 !important;
+
+        transition: all 0.18s ease !important;
+    }
+
+    .stButton > button:hover {
+        border-color: #6d5dfc !important;
+
+        color: #5b4ce0 !important;
+
+        box-shadow:
+            0 5px 16px rgba(80, 70, 200, 0.10) !important;
+    }
+
+
+    /* =========================
+       INPUT
+       ========================= */
 
     .stTextInput input {
-        border-radius: 11px !important;
+        min-height: 42px !important;
+
+        border-radius: 10px !important;
+
         border: 1px solid #dce0ea !important;
-        background: rgba(255,255,255,0.95) !important;
+
+        background: rgba(255, 255, 255, 0.95) !important;
     }
 
 
-    /* ======================================================
+    /* =========================
        ALERTS
-       ====================================================== */
+       ========================= */
 
     .stAlert {
         border-radius: 12px !important;
     }
 
 
-    /* ======================================================
+    /* =========================
        MOBILE
-       ====================================================== */
+       ========================= */
 
     @media (max-width: 700px) {
 
@@ -379,16 +470,16 @@ st.markdown(
             padding-right: 1rem;
         }
 
+        .dashboard-title {
+            font-size: 22px;
+        }
+
+        .dashboard-header {
+            padding: 19px;
+        }
+
         [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker) {
             padding: 25px 20px;
-        }
-
-        .hero-title {
-            font-size: 23px;
-        }
-
-        .dashboard-hero {
-            padding: 20px;
         }
     }
 
@@ -422,15 +513,27 @@ if "selected_mailbox" not in st.session_state:
 # DASHBOARD LOGIN
 # ============================================================
 
-DASHBOARD_USERNAME = os.getenv("DASHBOARD_USERNAME", "")
-DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
+DASHBOARD_USERNAME = os.getenv(
+    "DASHBOARD_USERNAME",
+    ""
+).strip()
+
+DASHBOARD_PASSWORD = os.getenv(
+    "DASHBOARD_PASSWORD",
+    ""
+).strip()
 
 
 if not st.session_state.logged_in:
 
-    st.markdown('<div class="login-page-space"></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="login-space"></div>',
+        unsafe_allow_html=True
+    )
 
-    left, center, right = st.columns([1, 1.15, 1])
+    left, center, right = st.columns(
+        [1, 1.15, 1]
+    )
 
     with center:
 
@@ -443,7 +546,9 @@ if not st.session_state.logged_in:
 
             st.markdown(
                 """
-                <div class="login-logo">📬</div>
+                <div class="login-logo">
+                    📬
+                </div>
 
                 <div class="login-title">
                     Mailbox Dashboard
@@ -453,43 +558,51 @@ if not st.session_state.logged_in:
                     Sign in to manage your Yahoo mailboxes
                 </div>
                 """,
-                unsafe_allow_html=True,
+                unsafe_allow_html=True
             )
 
             with st.form("dashboard_login_form"):
 
                 username = st.text_input(
                     "Username",
-                    placeholder="Enter dashboard username",
+                    placeholder="Enter username"
                 )
 
                 password = st.text_input(
                     "Password",
                     type="password",
-                    placeholder="Enter dashboard password",
+                    placeholder="Enter password"
                 )
 
                 login_clicked = st.form_submit_button(
                     "🔐  Sign in",
-                    use_container_width=True,
+                    use_container_width=True
                 )
 
                 if login_clicked:
 
-                    if not DASHBOARD_USERNAME or not DASHBOARD_PASSWORD:
+                    if (
+                        not DASHBOARD_USERNAME
+                        or not DASHBOARD_PASSWORD
+                    ):
+
                         st.error(
-                            "Dashboard login credentials are not configured."
+                            "Dashboard credentials are not configured."
                         )
 
                     elif (
                         username == DASHBOARD_USERNAME
                         and password == DASHBOARD_PASSWORD
                     ):
+
                         st.session_state.logged_in = True
+
                         st.session_state.stop_requested = False
+
                         st.rerun()
 
                     else:
+
                         st.error(
                             "Invalid username or password."
                         )
@@ -500,7 +613,7 @@ if not st.session_state.logged_in:
                     Secure dashboard access
                 </div>
                 """,
-                unsafe_allow_html=True,
+                unsafe_allow_html=True
             )
 
     st.stop()
@@ -511,6 +624,7 @@ if not st.session_state.logged_in:
 # ============================================================
 
 IMAP_SERVER = "imap.mail.yahoo.com"
+
 IMAP_PORT = 993
 
 MAX_MESSAGES_PER_MAILBOX = 2000
@@ -521,31 +635,36 @@ MAX_MESSAGES_PER_MAILBOX = 2000
 # ============================================================
 
 def get_env_value(prefix, index):
-    return os.getenv(f"{prefix}_{index}", "").strip()
+
+    return os.getenv(
+        f"{prefix}_{index}",
+        ""
+    ).strip()
 
 
 def load_accounts():
+
     accounts = []
 
     for i in range(1, 101):
 
-        email_address = get_env_value(
+        yahoo_email = get_env_value(
             "YAHOO_EMAIL",
             i
         )
 
-        app_password = get_env_value(
+        yahoo_password = get_env_value(
             "YAHOO_APP_PASSWORD",
             i
         )
 
-        if email_address and app_password:
+        if yahoo_email and yahoo_password:
 
             accounts.append(
                 {
                     "index": i,
-                    "email": email_address,
-                    "password": app_password,
+                    "email": yahoo_email,
+                    "password": yahoo_password
                 }
             )
 
@@ -568,18 +687,21 @@ def decode_mime_header(value):
             if isinstance(part, bytes):
 
                 try:
+
                     decoded += part.decode(
                         encoding or "utf-8",
                         errors="replace"
                     )
 
                 except Exception:
+
                     decoded += part.decode(
                         "utf-8",
                         errors="replace"
                     )
 
             else:
+
                 decoded += str(part)
 
         return decoded
@@ -592,50 +714,72 @@ def decode_mime_header(value):
 def get_subject(message):
 
     try:
+
         return decode_mime_header(
-            message.get("Subject", "")
+            message.get(
+                "Subject",
+                ""
+            )
         )
 
     except Exception:
+
         return ""
 
 
 def get_from(message):
 
     try:
+
         return decode_mime_header(
-            message.get("From", "")
+            message.get(
+                "From",
+                ""
+            )
         )
 
     except Exception:
+
         return ""
 
 
 # ============================================================
-# PROCESS ONE MAILBOX
+# PROCESS MAILBOX
 # ============================================================
 
 def check_mailbox(
     account,
     progress_placeholder=None,
-    status_placeholder=None,
+    status_placeholder=None
 ):
 
     email_address = account["email"]
+
     app_password = account["password"]
 
     result = {
+
         "email": email_address,
+
         "unread_found": 0,
+
         "selected": 0,
+
         "fetched": 0,
+
         "seen": 0,
+
         "failed": 0,
+
         "error": "",
+
         "latest": [],
+
         "started": datetime.now().strftime(
             "%Y-%m-%d %H:%M:%S"
         ),
+
+        "finished": ""
     }
 
     mail = None
@@ -643,9 +787,11 @@ def check_mailbox(
     try:
 
         if status_placeholder:
+
             status_placeholder.info(
                 f"Connecting to {email_address}..."
             )
+
 
         # ----------------------------------------------------
         # CONNECT
@@ -666,6 +812,7 @@ def check_mailbox(
             readonly=False
         )
 
+
         # ----------------------------------------------------
         # SEARCH UNREAD
         # ----------------------------------------------------
@@ -684,24 +831,29 @@ def check_mailbox(
 
             return result
 
+
         uid_bytes = data[0] if data else b""
 
         all_uids = uid_bytes.split()
 
         result["unread_found"] = len(all_uids)
 
+
         # ----------------------------------------------------
-        # LIMIT TO 2000
+        # MAX 2000
         # ----------------------------------------------------
 
         selected_uids = all_uids[
             :MAX_MESSAGES_PER_MAILBOX
         ]
 
-        result["selected"] = len(selected_uids)
+        result["selected"] = len(
+            selected_uids
+        )
+
 
         # ----------------------------------------------------
-        # FETCH MESSAGES
+        # FETCH
         # ----------------------------------------------------
 
         for position, uid in enumerate(
@@ -709,8 +861,8 @@ def check_mailbox(
             start=1
         ):
 
-            # STOP CHECK
             if st.session_state.stop_requested:
+
                 break
 
             try:
@@ -722,8 +874,11 @@ def check_mailbox(
                 )
 
                 if fetch_status != "OK":
+
                     result["failed"] += 1
+
                     continue
+
 
                 raw_message = None
 
@@ -733,25 +888,37 @@ def check_mailbox(
                         isinstance(item, tuple)
                         and len(item) >= 2
                     ):
+
                         raw_message = item[1]
+
                         break
 
+
                 if raw_message is None:
+
                     result["failed"] += 1
+
                     continue
 
-                # Parse message
+
                 message = email.message_from_bytes(
                     raw_message
                 )
 
-                subject = get_subject(message)
-                sender = get_from(message)
+                subject = get_subject(
+                    message
+                )
+
+                sender = get_from(
+                    message
+                )
+
 
                 result["fetched"] += 1
 
+
                 # ------------------------------------------------
-                # MARK AS SEEN
+                # MARK SEEN
                 # ------------------------------------------------
 
                 seen_status, _ = mail.uid(
@@ -762,12 +929,16 @@ def check_mailbox(
                 )
 
                 if seen_status == "OK":
+
                     result["seen"] += 1
+
                 else:
+
                     result["failed"] += 1
 
+
                 # ------------------------------------------------
-                # STORE ONLY LATEST 20 FOR UI
+                # LATEST 20
                 # ------------------------------------------------
 
                 if len(result["latest"]) < 20:
@@ -777,10 +948,13 @@ def check_mailbox(
                             "uid": uid.decode(
                                 errors="replace"
                             ),
+
                             "from": sender,
-                            "subject": subject,
+
+                            "subject": subject
                         }
                     )
+
 
                 # ------------------------------------------------
                 # PROGRESS
@@ -796,24 +970,29 @@ def check_mailbox(
                         )
                     )
 
+
                 if status_placeholder:
 
                     status_placeholder.info(
-                        f"Processing {email_address}  "
+                        f"Processing {email_address} "
                         f"({position}/{len(selected_uids)})"
                     )
+
 
             except Exception:
 
                 result["failed"] += 1
 
+
         return result
+
 
     except Exception as exc:
 
         result["error"] = str(exc)
 
         return result
+
 
     finally:
 
@@ -834,6 +1013,7 @@ def check_mailbox(
         except Exception:
             pass
 
+
         result["finished"] = (
             datetime.now().strftime(
                 "%Y-%m-%d %H:%M:%S"
@@ -842,7 +1022,7 @@ def check_mailbox(
 
 
 # ============================================================
-# LOAD ACCOUNTS
+# LOAD MAILBOXES
 # ============================================================
 
 accounts = load_accounts()
@@ -854,31 +1034,27 @@ accounts = load_accounts()
 
 st.markdown(
     """
-    <div class="dashboard-hero">
+    <div class="dashboard-header">
 
-        <div class="hero-row">
+        <div class="dashboard-icon">
+            📬
+        </div>
 
-            <div class="hero-icon">
-                📬
+        <div>
+
+            <div class="dashboard-title">
+                Yahoo Mailbox Dashboard
             </div>
 
-            <div>
-
-                <div class="hero-title">
-                    Yahoo Mailbox Dashboard
-                </div>
-
-                <div class="hero-subtitle">
-                    Manage unread messages across your configured mailboxes
-                </div>
-
+            <div class="dashboard-subtitle">
+                Manage your configured Yahoo mailboxes
             </div>
 
         </div>
 
     </div>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
 
 
@@ -887,21 +1063,23 @@ st.markdown(
 # ============================================================
 
 top_left, top_middle, top_right = st.columns(
-    [2, 5, 1]
+    [3, 4, 1]
 )
+
 
 with top_left:
 
     st.markdown(
-        f"""
+        """
         <div class="section-title">
             📊 Mailbox Overview
         </div>
+
         <div class="section-subtitle">
-            {len(accounts)} configured mailbox(s)
+            Monitor your configured mailboxes
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
 
@@ -913,118 +1091,159 @@ with top_right:
     ):
 
         st.session_state.logged_in = False
+
         st.session_state.stop_requested = False
+
         st.session_state.processing = False
+
+        st.session_state.selected_mailbox = None
+
         st.rerun()
 
 
 # ============================================================
-# METRICS
+# CALCULATE METRICS
 # ============================================================
 
 total_mailboxes = len(accounts)
 
 total_unread = sum(
-    item.get("unread_found", 0)
-    for item in st.session_state.results.values()
+    result.get(
+        "unread_found",
+        0
+    )
+    for result in st.session_state.results.values()
 )
 
 total_fetched = sum(
-    item.get("fetched", 0)
-    for item in st.session_state.results.values()
+    result.get(
+        "fetched",
+        0
+    )
+    for result in st.session_state.results.values()
 )
 
 total_seen = sum(
-    item.get("seen", 0)
-    for item in st.session_state.results.values()
+    result.get(
+        "seen",
+        0
+    )
+    for result in st.session_state.results.values()
 )
 
 total_failed = sum(
-    item.get("failed", 0)
-    for item in st.session_state.results.values()
+    result.get(
+        "failed",
+        0
+    )
+    for result in st.session_state.results.values()
 )
 
 
+# ============================================================
+# METRIC CARDS
+# ============================================================
+
 m1, m2, m3, m4, m5 = st.columns(5)
+
 
 with m1:
 
     st.markdown(
         f"""
         <div class="metric-card">
+
             <div class="metric-label">
                 MAILBOXES
             </div>
+
             <div class="metric-value">
                 {total_mailboxes}
             </div>
+
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
+
 
 with m2:
 
     st.markdown(
         f"""
         <div class="metric-card">
+
             <div class="metric-label">
                 UNREAD FOUND
             </div>
+
             <div class="metric-value">
                 {total_unread:,}
             </div>
+
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
+
 
 with m3:
 
     st.markdown(
         f"""
         <div class="metric-card">
+
             <div class="metric-label">
                 FETCHED
             </div>
+
             <div class="metric-value">
                 {total_fetched:,}
             </div>
+
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
+
 
 with m4:
 
     st.markdown(
         f"""
         <div class="metric-card">
+
             <div class="metric-label">
                 MARKED SEEN
             </div>
+
             <div class="metric-value">
                 {total_seen:,}
             </div>
+
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
+
 
 with m5:
 
     st.markdown(
         f"""
         <div class="metric-card">
+
             <div class="metric-label">
                 FAILED
             </div>
+
             <div class="metric-value">
                 {total_failed:,}
             </div>
+
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
 
@@ -1035,16 +1254,16 @@ st.write("")
 # SEARCH
 # ============================================================
 
-search_col, empty_col = st.columns(
-    [2, 4]
+search_col, blank_col = st.columns(
+    [2, 5]
 )
 
 with search_col:
 
     search_text = st.text_input(
-        "Search mailbox",
-        placeholder="🔎  Search email address...",
-        label_visibility="collapsed",
+        "Search",
+        placeholder="🔎  Search mailbox...",
+        label_visibility="collapsed"
     )
 
 
@@ -1052,16 +1271,17 @@ with search_col:
 # START / STOP
 # ============================================================
 
-start_col, stop_col, info_col = st.columns(
-    [1, 1, 4]
+start_col, stop_col, status_col = st.columns(
+    [1.3, 1, 4]
 )
+
 
 with start_col:
 
     start_clicked = st.button(
         "▶ START PROCESSING",
         use_container_width=True,
-        disabled=st.session_state.processing,
+        disabled=st.session_state.processing
     )
 
 
@@ -1070,13 +1290,14 @@ with stop_col:
     stop_clicked = st.button(
         "🛑 STOP",
         use_container_width=True,
-        disabled=not st.session_state.processing,
+        disabled=not st.session_state.processing
     )
 
 
 if stop_clicked:
 
     st.session_state.stop_requested = True
+
     st.warning(
         "Stop requested. Current mailbox operation will finish first."
     )
@@ -1097,17 +1318,21 @@ if start_clicked:
     else:
 
         st.session_state.processing = True
+
         st.session_state.stop_requested = False
+
         st.session_state.results = {}
 
         st.info(
-            f"Starting processing for {len(accounts)} mailbox(es). "
+            f"Processing {len(accounts)} mailbox(es). "
             f"Maximum {MAX_MESSAGES_PER_MAILBOX:,} unread messages per mailbox."
         )
+
 
         overall_progress = st.progress(0)
 
         overall_status = st.empty()
+
 
         for account_number, account in enumerate(
             accounts,
@@ -1115,35 +1340,48 @@ if start_clicked:
         ):
 
             if st.session_state.stop_requested:
+
                 break
+
 
             overall_status.info(
                 f"Mailbox {account_number}/{len(accounts)}: "
                 f"{account['email']}"
             )
 
+
             mailbox_progress = st.empty()
+
             mailbox_status = st.empty()
+
 
             result = check_mailbox(
                 account,
+
                 progress_placeholder=mailbox_progress,
-                status_placeholder=mailbox_status,
+
+                status_placeholder=mailbox_status
             )
+
 
             st.session_state.results[
                 account["email"]
             ] = result
+
 
             overall_progress.progress(
                 account_number
                 / len(accounts)
             )
 
+
             mailbox_progress.empty()
+
             mailbox_status.empty()
 
+
         st.session_state.processing = False
+
 
         if st.session_state.stop_requested:
 
@@ -1154,8 +1392,9 @@ if start_clicked:
         else:
 
             st.success(
-                "All mailboxes processed."
+                "All mailboxes processed successfully."
             )
+
 
         st.rerun()
 
@@ -1172,7 +1411,7 @@ if st.session_state.processing:
 
 
 # ============================================================
-# RESULTS SUMMARY
+# RESULTS
 # ============================================================
 
 if st.session_state.results:
@@ -1184,29 +1423,33 @@ if st.session_state.results:
         </div>
 
         <div class="section-subtitle">
-            Latest processing information
+            Current processing summary
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
-    result_columns = st.columns(3)
 
-    with result_columns[0]:
+    r1, r2, r3 = st.columns(3)
+
+
+    with r1:
 
         st.metric(
             "Unread Found",
             f"{total_unread:,}"
         )
 
-    with result_columns[1]:
+
+    with r2:
 
         st.metric(
             "Fetched",
             f"{total_fetched:,}"
         )
 
-    with result_columns[2]:
+
+    with r3:
 
         st.metric(
             "Marked Seen",
@@ -1215,7 +1458,7 @@ if st.session_state.results:
 
 
 # ============================================================
-# MAILBOX LIST
+# MAILBOX SECTION
 # ============================================================
 
 st.markdown(
@@ -1228,21 +1471,30 @@ st.markdown(
         Select a mailbox to view its latest processed messages.
     </div>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
 
 
+# ============================================================
+# FILTER
+# ============================================================
+
 filtered_accounts = accounts
+
 
 if search_text:
 
     search_lower = search_text.lower()
 
     filtered_accounts = [
+
         account
+
         for account in accounts
+
         if search_lower
         in account["email"].lower()
+
     ]
 
 
@@ -1262,6 +1514,7 @@ for row_start in range(
 
     cols = st.columns(3)
 
+
     for col, account in zip(
         cols,
         row_accounts
@@ -1275,6 +1528,7 @@ for row_start in range(
                 email_address
             )
 
+
             with st.container(border=True):
 
                 st.markdown(
@@ -1287,8 +1541,9 @@ for row_start in range(
                         {email_address}
                     </div>
                     """,
-                    unsafe_allow_html=True,
+                    unsafe_allow_html=True
                 )
+
 
                 if result:
 
@@ -1300,33 +1555,39 @@ for row_start in range(
                                 ⚠️ Error
                             </div>
                             """,
-                            unsafe_allow_html=True,
+                            unsafe_allow_html=True
                         )
 
                     else:
 
                         st.markdown(
-                            f"""
+                            """
                             <div class="mailbox-status">
                                 ✓ Processed
                             </div>
                             """,
-                            unsafe_allow_html=True,
+                            unsafe_allow_html=True
                         )
 
+
                     c1, c2 = st.columns(2)
+
 
                     with c1:
 
                         st.caption(
-                            f"Unread: {result.get('unread_found', 0):,}"
+                            f"Unread: "
+                            f"{result.get('unread_found', 0):,}"
                         )
+
 
                     with c2:
 
                         st.caption(
-                            f"Seen: {result.get('seen', 0):,}"
+                            f"Seen: "
+                            f"{result.get('seen', 0):,}"
                         )
+
 
                 else:
 
@@ -1336,13 +1597,14 @@ for row_start in range(
                             ○ Not processed
                         </div>
                         """,
-                        unsafe_allow_html=True,
+                        unsafe_allow_html=True
                     )
+
 
                 if st.button(
                     "▶ Open",
                     key=f"open_{account['index']}",
-                    use_container_width=True,
+                    use_container_width=True
                 ):
 
                     st.session_state.selected_mailbox = (
@@ -1351,31 +1613,39 @@ for row_start in range(
 
 
 # ============================================================
-# SELECTED MAILBOX DETAILS
+# SELECTED MAILBOX
 # ============================================================
 
-selected = st.session_state.selected_mailbox
+selected_mailbox = (
+    st.session_state.selected_mailbox
+)
 
-if selected:
 
-    selected_result = st.session_state.results.get(
-        selected
+if selected_mailbox:
+
+    selected_result = (
+        st.session_state.results.get(
+            selected_mailbox
+        )
     )
 
+
     st.divider()
+
 
     st.markdown(
         f"""
         <div class="section-title">
-            📩 {selected}
+            📩 {selected_mailbox}
         </div>
 
         <div class="section-subtitle">
             Latest processed messages
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
+
 
     if not selected_result:
 
@@ -1383,47 +1653,73 @@ if selected:
             "This mailbox has not been processed yet."
         )
 
+
     elif selected_result.get("error"):
 
         st.error(
             selected_result["error"]
         )
 
+
     else:
 
-        st.write(
-            f"**Unread found:** "
-            f"{selected_result.get('unread_found', 0):,}"
+        a1, a2, a3, a4, a5 = st.columns(5)
+
+
+        with a1:
+
+            st.metric(
+                "Unread",
+                f"{selected_result.get('unread_found', 0):,}"
+            )
+
+
+        with a2:
+
+            st.metric(
+                "Selected",
+                f"{selected_result.get('selected', 0):,}"
+            )
+
+
+        with a3:
+
+            st.metric(
+                "Fetched",
+                f"{selected_result.get('fetched', 0):,}"
+            )
+
+
+        with a4:
+
+            st.metric(
+                "Seen",
+                f"{selected_result.get('seen', 0):,}"
+            )
+
+
+        with a5:
+
+            st.metric(
+                "Failed",
+                f"{selected_result.get('failed', 0):,}"
+            )
+
+
+        st.write("")
+
+
+        latest_messages = (
+            selected_result.get(
+                "latest",
+                []
+            )
         )
 
-        st.write(
-            f"**Selected:** "
-            f"{selected_result.get('selected', 0):,}"
-        )
 
-        st.write(
-            f"**Fetched:** "
-            f"{selected_result.get('fetched', 0):,}"
-        )
+        if latest_messages:
 
-        st.write(
-            f"**Marked Seen:** "
-            f"{selected_result.get('seen', 0):,}"
-        )
-
-        st.write(
-            f"**Failed:** "
-            f"{selected_result.get('failed', 0):,}"
-        )
-
-        latest = selected_result.get(
-            "latest",
-            []
-        )
-
-        if latest:
-
-            for message in latest:
+            for message in latest_messages:
 
                 with st.container(border=True):
 
@@ -1448,18 +1744,16 @@ if selected:
 # FOOTER
 # ============================================================
 
-st.write("")
-
 st.markdown(
     """
     <div style="
         text-align:center;
         color:#9a9fb0;
         font-size:11px;
-        padding-top:20px;
+        padding-top:25px;
     ">
         Yahoo Mailbox Dashboard
     </div>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
