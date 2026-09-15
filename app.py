@@ -27,9 +27,7 @@ st.markdown(
     """
     <style>
 
-    /* =========================
-       GLOBAL
-       ========================= */
+    /* ---------- PAGE ---------- */
 
     .stApp {
         background:
@@ -39,8 +37,8 @@ st.markdown(
                 transparent 28%
             ),
             radial-gradient(
-                circle at 90% 15%,
-                rgba(76, 139, 245, 0.09),
+                circle at 90% 10%,
+                rgba(76, 139, 245, 0.08),
                 transparent 28%
             ),
             linear-gradient(
@@ -69,13 +67,7 @@ st.markdown(
     }
 
 
-    /* =========================
-       LOGIN
-       ========================= */
-
-    .login-space {
-        height: 6vh;
-    }
+    /* ---------- LOGIN CARD ---------- */
 
     .login-marker {
         display: none;
@@ -86,7 +78,7 @@ st.markdown(
         margin-left: auto;
         margin-right: auto;
 
-        padding: 32px 34px 30px 34px;
+        padding: 30px 34px;
 
         border-radius: 24px;
 
@@ -97,89 +89,51 @@ st.markdown(
         box-shadow:
             0 25px 70px rgba(25, 35, 65, 0.12),
             0 5px 20px rgba(25, 35, 65, 0.05);
-
-        backdrop-filter: blur(12px);
     }
 
     .login-logo {
-        width: 68px;
-        height: 68px;
-
-        margin: 0 auto 17px auto;
-
-        border-radius: 19px;
-
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        font-size: 32px;
-
-        background:
-            linear-gradient(
-                135deg,
-                #6d5dfc,
-                #4c8bf5
-            );
-
-        box-shadow:
-            0 12px 30px rgba(88, 82, 220, 0.25);
+        text-align: center;
+        font-size: 48px;
+        margin-bottom: 5px;
     }
 
     .login-title {
         text-align: center;
-
         font-size: 27px;
         font-weight: 750;
-
         color: #20243a;
-
-        letter-spacing: -0.5px;
-
         margin-bottom: 5px;
     }
 
     .login-subtitle {
         text-align: center;
-
         color: #7b8193;
-
         font-size: 13px;
-
         margin-bottom: 22px;
     }
 
     [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker) label {
         color: #42485c !important;
-        font-size: 13px !important;
         font-weight: 650 !important;
+        font-size: 13px !important;
     }
 
     [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker) input {
         min-height: 45px !important;
-
         border-radius: 11px !important;
-
         border: 1px solid #dce0ea !important;
-
         background: #fafbfe !important;
-
-        padding-left: 13px !important;
     }
 
     [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker)
     input:focus {
         border-color: #6d5dfc !important;
-
-        box-shadow:
-            0 0 0 2px rgba(109, 93, 252, 0.10) !important;
+        box-shadow: 0 0 0 2px rgba(109, 93, 252, 0.10) !important;
     }
 
     [data-testid="stFormSubmitButton"] button {
         min-height: 46px !important;
-
         border: none !important;
-
         border-radius: 11px !important;
 
         background:
@@ -190,292 +144,71 @@ st.markdown(
             ) !important;
 
         color: white !important;
-
         font-weight: 700 !important;
 
         box-shadow:
             0 8px 22px rgba(88, 82, 220, 0.22) !important;
     }
 
-    [data-testid="stFormSubmitButton"] button:hover {
-        transform: translateY(-1px);
-
-        box-shadow:
-            0 11px 28px rgba(88, 82, 220, 0.30) !important;
-    }
-
     .login-note {
         text-align: center;
-
         color: #9a9fb0;
-
         font-size: 11px;
-
         margin-top: 15px;
     }
 
 
-    /* =========================
-       DASHBOARD HEADER
-       ========================= */
-
-    .dashboard-header {
-        display: flex;
-
-        align-items: center;
-
-        gap: 15px;
-
-        padding: 22px 25px;
-
-        border-radius: 20px;
-
-        background: rgba(255, 255, 255, 0.95);
-
-        border: 1px solid rgba(120, 130, 160, 0.17);
-
-        box-shadow:
-            0 10px 30px rgba(25, 35, 65, 0.06);
-
-        margin-bottom: 22px;
-    }
-
-    .dashboard-icon {
-        width: 55px;
-        height: 55px;
-
-        flex-shrink: 0;
-
-        border-radius: 16px;
-
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        font-size: 28px;
-
-        background:
-            linear-gradient(
-                135deg,
-                #6d5dfc,
-                #4c8bf5
-            );
-
-        box-shadow:
-            0 10px 25px rgba(88, 82, 220, 0.20);
-    }
-
-    .dashboard-title {
-        font-size: 26px;
-
-        font-weight: 750;
-
-        color: #20243a;
-
-        line-height: 1.2;
-
-        letter-spacing: -0.5px;
-    }
-
-    .dashboard-subtitle {
-        font-size: 13px;
-
-        color: #7b8193;
-
-        margin-top: 4px;
-    }
-
-
-    /* =========================
-       SECTION
-       ========================= */
-
-    .section-title {
-        font-size: 19px;
-
-        font-weight: 720;
-
-        color: #292d40;
-
-        margin-top: 10px;
-
-        margin-bottom: 3px;
-    }
-
-    .section-subtitle {
-        font-size: 12px;
-
-        color: #858b9d;
-
-        margin-bottom: 13px;
-    }
-
-
-    /* =========================
-       METRIC CARDS
-       ========================= */
-
-    .metric-card {
-        min-height: 105px;
-
-        padding: 18px 20px;
-
-        border-radius: 17px;
-
-        background: rgba(255, 255, 255, 0.94);
-
-        border: 1px solid rgba(120, 130, 160, 0.16);
-
-        box-shadow:
-            0 7px 22px rgba(25, 35, 65, 0.05);
-    }
-
-    .metric-label {
-        color: #858b9d;
-
-        font-size: 11px;
-
-        font-weight: 650;
-
-        letter-spacing: 0.3px;
-
-        margin-bottom: 8px;
-    }
-
-    .metric-value {
-        color: #25293c;
-
-        font-size: 27px;
-
-        font-weight: 750;
-
-        line-height: 1;
-    }
-
-
-    /* =========================
-       MAILBOX CARDS
-       ========================= */
+    /* ---------- NORMAL CONTAINERS ---------- */
 
     [data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 17px;
-
+        border-radius: 16px;
         border-color: rgba(120, 130, 160, 0.17);
-
         background: rgba(255, 255, 255, 0.92);
-
         box-shadow:
             0 6px 20px rgba(25, 35, 65, 0.045);
     }
 
-    .mailbox-title {
-        color: #2d3144;
 
-        font-size: 15px;
-
-        font-weight: 700;
-
-        margin-bottom: 3px;
-    }
-
-    .mailbox-email {
-        color: #808699;
-
-        font-size: 12px;
-
-        word-break: break-all;
-    }
-
-    .mailbox-status {
-        display: inline-block;
-
-        margin-top: 8px;
-
-        padding: 4px 9px;
-
-        border-radius: 20px;
-
-        background: #f0f2f8;
-
-        color: #626a7f;
-
-        font-size: 10px;
-
-        font-weight: 650;
-    }
-
-
-    /* =========================
-       BUTTONS
-       ========================= */
+    /* ---------- BUTTONS ---------- */
 
     .stButton > button {
         min-height: 40px !important;
-
         border-radius: 10px !important;
 
         border: 1px solid #dce0ea !important;
 
-        background: #ffffff !important;
+        background: white !important;
 
         color: #34394c !important;
 
         font-weight: 650 !important;
-
-        transition: all 0.18s ease !important;
     }
 
     .stButton > button:hover {
         border-color: #6d5dfc !important;
-
         color: #5b4ce0 !important;
-
         box-shadow:
             0 5px 16px rgba(80, 70, 200, 0.10) !important;
     }
 
 
-    /* =========================
-       INPUT
-       ========================= */
+    /* ---------- INPUT ---------- */
 
     .stTextInput input {
         min-height: 42px !important;
-
         border-radius: 10px !important;
-
         border: 1px solid #dce0ea !important;
-
-        background: rgba(255, 255, 255, 0.95) !important;
+        background: rgba(255,255,255,0.95) !important;
     }
 
 
-    /* =========================
-       ALERTS
-       ========================= */
-
-    .stAlert {
-        border-radius: 12px !important;
-    }
-
-
-    /* =========================
-       MOBILE
-       ========================= */
+    /* ---------- MOBILE ---------- */
 
     @media (max-width: 700px) {
 
         .main .block-container {
             padding-left: 1rem;
             padding-right: 1rem;
-        }
-
-        .dashboard-title {
-            font-size: 22px;
-        }
-
-        .dashboard-header {
-            padding: 19px;
         }
 
         [data-testid="stVerticalBlockBorderWrapper"]:has(.login-marker) {
@@ -526,10 +259,9 @@ DASHBOARD_PASSWORD = os.getenv(
 
 if not st.session_state.logged_in:
 
-    st.markdown(
-        '<div class="login-space"></div>',
-        unsafe_allow_html=True
-    )
+    st.write("")
+    st.write("")
+    st.write("")
 
     left, center, right = st.columns(
         [1, 1.15, 1]
@@ -539,25 +271,27 @@ if not st.session_state.logged_in:
 
         with st.container(border=True):
 
+            # Marker only for CSS.
+            # It will NOT be visible to the user.
             st.markdown(
-                '<div class="login-marker"></div>',
+                '<span class="login-marker"></span>',
                 unsafe_allow_html=True
             )
 
             st.markdown(
-                """
-                <div class="login-logo">
-                    📬
-                </div>
+                '<div class="login-logo">📬</div>',
+                unsafe_allow_html=True
+            )
 
-                <div class="login-title">
-                    Mailbox Dashboard
-                </div>
+            st.markdown(
+                '<div class="login-title">Mailbox Dashboard</div>',
+                unsafe_allow_html=True
+            )
 
-                <div class="login-subtitle">
-                    Sign in to manage your Yahoo mailboxes
-                </div>
-                """,
+            st.markdown(
+                '<div class="login-subtitle">'
+                'Sign in to manage your Yahoo mailboxes'
+                '</div>',
                 unsafe_allow_html=True
             )
 
@@ -608,11 +342,9 @@ if not st.session_state.logged_in:
                         )
 
             st.markdown(
-                """
-                <div class="login-note">
-                    Secure dashboard access
-                </div>
-                """,
+                '<div class="login-note">'
+                'Secure dashboard access'
+                '</div>',
                 unsafe_allow_html=True
             )
 
@@ -620,7 +352,7 @@ if not st.session_state.logged_in:
 
 
 # ============================================================
-# IMAP SETTINGS
+# IMAP CONFIG
 # ============================================================
 
 IMAP_SERVER = "imap.mail.yahoo.com"
@@ -744,7 +476,7 @@ def get_from(message):
 
 
 # ============================================================
-# PROCESS MAILBOX
+# PROCESS ONE MAILBOX
 # ============================================================
 
 def check_mailbox(
@@ -793,10 +525,7 @@ def check_mailbox(
             )
 
 
-        # ----------------------------------------------------
         # CONNECT
-        # ----------------------------------------------------
-
         mail = imaplib.IMAP4_SSL(
             IMAP_SERVER,
             IMAP_PORT
@@ -813,10 +542,7 @@ def check_mailbox(
         )
 
 
-        # ----------------------------------------------------
         # SEARCH UNREAD
-        # ----------------------------------------------------
-
         status, data = mail.uid(
             "search",
             None,
@@ -836,13 +562,12 @@ def check_mailbox(
 
         all_uids = uid_bytes.split()
 
-        result["unread_found"] = len(all_uids)
+        result["unread_found"] = len(
+            all_uids
+        )
 
 
-        # ----------------------------------------------------
         # MAX 2000
-        # ----------------------------------------------------
-
         selected_uids = all_uids[
             :MAX_MESSAGES_PER_MAILBOX
         ]
@@ -852,10 +577,7 @@ def check_mailbox(
         )
 
 
-        # ----------------------------------------------------
         # FETCH
-        # ----------------------------------------------------
-
         for position, uid in enumerate(
             selected_uids,
             start=1
@@ -917,10 +639,7 @@ def check_mailbox(
                 result["fetched"] += 1
 
 
-                # ------------------------------------------------
-                # MARK SEEN
-                # ------------------------------------------------
-
+                # MARK AS SEEN
                 seen_status, _ = mail.uid(
                     "store",
                     uid,
@@ -937,10 +656,7 @@ def check_mailbox(
                     result["failed"] += 1
 
 
-                # ------------------------------------------------
-                # LATEST 20
-                # ------------------------------------------------
-
+                # STORE LATEST 20
                 if len(result["latest"]) < 20:
 
                     result["latest"].append(
@@ -956,10 +672,7 @@ def check_mailbox(
                     )
 
 
-                # ------------------------------------------------
                 # PROGRESS
-                # ------------------------------------------------
-
                 if progress_placeholder:
 
                     progress_placeholder.progress(
@@ -1022,7 +735,7 @@ def check_mailbox(
 
 
 # ============================================================
-# LOAD MAILBOXES
+# LOAD ACCOUNTS
 # ============================================================
 
 accounts = load_accounts()
@@ -1032,58 +745,31 @@ accounts = load_accounts()
 # DASHBOARD HEADER
 # ============================================================
 
-st.markdown(
-    """
-    <div class="dashboard-header">
+st.title("📬 Yahoo Mailbox Dashboard")
 
-        <div class="dashboard-icon">
-            📬
-        </div>
-
-        <div>
-
-            <div class="dashboard-title">
-                Yahoo Mailbox Dashboard
-            </div>
-
-            <div class="dashboard-subtitle">
-                Manage your configured Yahoo mailboxes
-            </div>
-
-        </div>
-
-    </div>
-    """,
-    unsafe_allow_html=True
+st.caption(
+    "Manage your configured Yahoo mailboxes"
 )
 
 
 # ============================================================
-# TOP BAR
+# TOP ROW
 # ============================================================
 
-top_left, top_middle, top_right = st.columns(
-    [3, 4, 1]
+left_top, right_top = st.columns(
+    [5, 1]
 )
 
+with left_top:
 
-with top_left:
+    st.subheader("📊 Mailbox Overview")
 
-    st.markdown(
-        """
-        <div class="section-title">
-            📊 Mailbox Overview
-        </div>
-
-        <div class="section-subtitle">
-            Monitor your configured mailboxes
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.caption(
+        f"{len(accounts)} configured mailbox(s)"
     )
 
 
-with top_right:
+with right_top:
 
     if st.button(
         "🚪 Logout",
@@ -1141,109 +827,44 @@ total_failed = sum(
 
 
 # ============================================================
-# METRIC CARDS
+# METRICS
 # ============================================================
 
 m1, m2, m3, m4, m5 = st.columns(5)
 
-
 with m1:
 
-    st.markdown(
-        f"""
-        <div class="metric-card">
-
-            <div class="metric-label">
-                MAILBOXES
-            </div>
-
-            <div class="metric-value">
-                {total_mailboxes}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.metric(
+        "📬 Mailboxes",
+        total_mailboxes
     )
-
 
 with m2:
 
-    st.markdown(
-        f"""
-        <div class="metric-card">
-
-            <div class="metric-label">
-                UNREAD FOUND
-            </div>
-
-            <div class="metric-value">
-                {total_unread:,}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.metric(
+        "📩 Unread Found",
+        f"{total_unread:,}"
     )
-
 
 with m3:
 
-    st.markdown(
-        f"""
-        <div class="metric-card">
-
-            <div class="metric-label">
-                FETCHED
-            </div>
-
-            <div class="metric-value">
-                {total_fetched:,}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.metric(
+        "📥 Fetched",
+        f"{total_fetched:,}"
     )
-
 
 with m4:
 
-    st.markdown(
-        f"""
-        <div class="metric-card">
-
-            <div class="metric-label">
-                MARKED SEEN
-            </div>
-
-            <div class="metric-value">
-                {total_seen:,}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.metric(
+        "✓ Marked Seen",
+        f"{total_seen:,}"
     )
-
 
 with m5:
 
-    st.markdown(
-        f"""
-        <div class="metric-card">
-
-            <div class="metric-label">
-                FAILED
-            </div>
-
-            <div class="metric-value">
-                {total_failed:,}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.metric(
+        "⚠️ Failed",
+        f"{total_failed:,}"
     )
 
 
@@ -1254,27 +875,19 @@ st.write("")
 # SEARCH
 # ============================================================
 
-search_col, blank_col = st.columns(
-    [2, 5]
+search_text = st.text_input(
+    "🔎 Search mailbox",
+    placeholder="Search by Yahoo email address..."
 )
-
-with search_col:
-
-    search_text = st.text_input(
-        "Search",
-        placeholder="🔎  Search mailbox...",
-        label_visibility="collapsed"
-    )
 
 
 # ============================================================
 # START / STOP
 # ============================================================
 
-start_col, stop_col, status_col = st.columns(
-    [1.3, 1, 4]
+start_col, stop_col, empty_col = st.columns(
+    [1.5, 1, 5]
 )
-
 
 with start_col:
 
@@ -1411,27 +1024,14 @@ if st.session_state.processing:
 
 
 # ============================================================
-# RESULTS
+# RESULTS SUMMARY
 # ============================================================
 
 if st.session_state.results:
 
-    st.markdown(
-        """
-        <div class="section-title">
-            📈 Processing Results
-        </div>
-
-        <div class="section-subtitle">
-            Current processing summary
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
+    st.subheader("📈 Processing Results")
 
     r1, r2, r3 = st.columns(3)
-
 
     with r1:
 
@@ -1440,14 +1040,12 @@ if st.session_state.results:
             f"{total_unread:,}"
         )
 
-
     with r2:
 
         st.metric(
             "Fetched",
             f"{total_fetched:,}"
         )
-
 
     with r3:
 
@@ -1461,17 +1059,10 @@ if st.session_state.results:
 # MAILBOX SECTION
 # ============================================================
 
-st.markdown(
-    """
-    <div class="section-title">
-        📬 Mailboxes
-    </div>
+st.subheader("📬 Mailboxes")
 
-    <div class="section-subtitle">
-        Select a mailbox to view its latest processed messages.
-    </div>
-    """,
-    unsafe_allow_html=True
+st.caption(
+    "Select a mailbox to view its latest processed messages."
 )
 
 
@@ -1532,16 +1123,11 @@ for row_start in range(
             with st.container(border=True):
 
                 st.markdown(
-                    f"""
-                    <div class="mailbox-title">
-                        📧 Mailbox {account["index"]}
-                    </div>
+                    f"### 📧 Mailbox {account['index']}"
+                )
 
-                    <div class="mailbox-email">
-                        {email_address}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
+                st.caption(
+                    email_address
                 )
 
 
@@ -1549,24 +1135,14 @@ for row_start in range(
 
                     if result.get("error"):
 
-                        st.markdown(
-                            """
-                            <div class="mailbox-status">
-                                ⚠️ Error
-                            </div>
-                            """,
-                            unsafe_allow_html=True
+                        st.error(
+                            "⚠️ Processing error"
                         )
 
                     else:
 
-                        st.markdown(
-                            """
-                            <div class="mailbox-status">
-                                ✓ Processed
-                            </div>
-                            """,
-                            unsafe_allow_html=True
+                        st.success(
+                            "✓ Processed"
                         )
 
 
@@ -1591,13 +1167,8 @@ for row_start in range(
 
                 else:
 
-                    st.markdown(
-                        """
-                        <div class="mailbox-status">
-                            ○ Not processed
-                        </div>
-                        """,
-                        unsafe_allow_html=True
+                    st.info(
+                        "Not processed yet"
                     )
 
 
@@ -1632,18 +1203,12 @@ if selected_mailbox:
 
     st.divider()
 
+    st.subheader(
+        f"📩 {selected_mailbox}"
+    )
 
-    st.markdown(
-        f"""
-        <div class="section-title">
-            📩 {selected_mailbox}
-        </div>
-
-        <div class="section-subtitle">
-            Latest processed messages
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.caption(
+        "Latest processed messages"
     )
 
 
@@ -1723,14 +1288,19 @@ if selected_mailbox:
 
                 with st.container(border=True):
 
-                    st.markdown(
-                        f"""
-                        **From:** {message.get("from", "")}
+                    st.write(
+                        f"**From:** "
+                        f"{message.get('from', '')}"
+                    )
 
-                        **Subject:** {message.get("subject", "")}
+                    st.write(
+                        f"**Subject:** "
+                        f"{message.get('subject', '')}"
+                    )
 
-                        **UID:** `{message.get("uid", "")}`
-                        """
+                    st.caption(
+                        f"UID: "
+                        f"{message.get('uid', '')}"
                     )
 
         else:
@@ -1744,16 +1314,8 @@ if selected_mailbox:
 # FOOTER
 # ============================================================
 
-st.markdown(
-    """
-    <div style="
-        text-align:center;
-        color:#9a9fb0;
-        font-size:11px;
-        padding-top:25px;
-    ">
-        Yahoo Mailbox Dashboard
-    </div>
-    """,
-    unsafe_allow_html=True
+st.divider()
+
+st.caption(
+    "Yahoo Mailbox Dashboard"
 )
