@@ -1,9 +1,12 @@
+```python
 import streamlit as st
 import imaplib
 import email
 import os
+import threading
 from email.header import decode_header
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # =========================================================
@@ -26,6 +29,10 @@ IMAP_SERVER = "imap.mail.yahoo.com"
 IMAP_PORT = 993
 
 MAX_MESSAGES_PER_MAILBOX = 2000
+
+# Maximum number of mailboxes processed simultaneously
+MAX_PARALLEL_MAILBOXES = 10
+
 MAX_LATEST_MESSAGES = 20
 
 
@@ -35,16 +42,29 @@ MAX_LATEST_MESSAGES = 20
 
 defaults = {
     "logged_in": False,
-    "stop_requested": False,
     "processing": False,
+    "stop_requested": False,
     "results": {},
     "selected_mailbox": None,
-    "processing_index": 0,
+    "run_id": 0,
 }
 
 for key, value in defaults.items():
+
     if key not in st.session_state:
         st.session_state[key] = value
+
+
+# =========================================================
+# GLOBAL STOP EVENT
+# =========================================================
+
+# IMPORTANT:
+# This is NOT stored inside worker logic.
+# Workers receive this Event directly.
+
+if "stop_event" not in st.session_state:
+    st.session_state.stop_event = threading.Event()
 
 
 # =========================================================
@@ -74,7 +94,7 @@ st.markdown(
 
     .login-box {
         max-width: 430px;
-        margin: 70px auto 0 auto;
+        margin: 70px auto 25px auto;
         padding: 32px;
         border-radius: 18px;
         border: 1px solid rgba(128,128,128,0.25);
@@ -99,13 +119,6 @@ st.markdown(
         margin-bottom: 25px;
     }
 
-    .mailbox-card {
-        padding: 18px;
-        border: 1px solid rgba(128,128,128,0.22);
-        border-radius: 14px;
-        margin-bottom: 12px;
-    }
-
     </style>
     """,
     unsafe_allow_html=True
@@ -113,31 +126,58 @@ st.markdown(
 
 
 # =========================================================
-# HELPER FUNCTIONS
+# HELPERS
 # =========================================================
 
+def now_string():
+
+    return datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+
 def decode_mime(value):
+
     if not value:
         return ""
 
     try:
+
         parts = decode_header(value)
+
         output = ""
 
         for part, encoding in parts:
+
             if isinstance(part, bytes):
-                output += part.decode(
-                    encoding or "utf-8",
-                    errors="replace"
-                )
+
+                try:
+                    output += part.decode(
+                        encoding or "utf-8",
+                        errors="replace"
+                    )
+
+                except Exception:
+
+                    output += part.decode(
+                        "utf-8",
+                        errors="replace"
+                    )
+
             else:
+
                 output += str(part)
 
         return output
 
     except Exception:
+
         return str(value)
 
+
+# =========================================================
+# LOAD YAHOO ACCOUNTS
+# =========================================================
 
 def load_accounts():
 
@@ -145,8 +185,13 @@ def load_accounts():
 
     for i in range(1, 101):
 
-        email_address = os.getenv(f"YAHOO_EMAIL_{i}")
-        app_password = os.getenv(f"YAHOO_APP_PASSWORD_{i}")
+        email_address = os.getenv(
+            f"YAHOO_EMAIL_{i}"
+        )
+
+        app_password = os.getenv(
+            f"YAHOO_APP_PASSWORD_{i}"
+        )
 
         if email_address and app_password:
 
@@ -162,19 +207,12 @@ def load_accounts():
 
 
 # =========================================================
-# MAILBOX PROCESSING
+# EMPTY RESULT
 # =========================================================
 
-def check_mailbox(
-    account,
-    progress_placeholder=None,
-    status_placeholder=None
-):
+def create_empty_result(email_address):
 
-    email_address = account["email"]
-    password = account["password"]
-
-    result = {
+    return {
         "email": email_address,
         "unread_found": 0,
         "selected": 0,
@@ -183,57 +221,104 @@ def check_mailbox(
         "failed": 0,
         "error": "",
         "latest": [],
-        "started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "started": now_string(),
         "finished": "",
         "stopped": False,
     }
+
+
+# =========================================================
+# PROCESS ONE MAILBOX
+# =========================================================
+
+def check_mailbox(account, stop_event):
+
+    email_address = account["email"]
+    password = account["password"]
+
+    result = create_empty_result(
+        email_address
+    )
 
     mail = None
 
     try:
 
-        # -------------------------------------------------
-        # CONNECT
-        # -------------------------------------------------
+        # =================================================
+        # STOP BEFORE CONNECT
+        # =================================================
 
-        if status_placeholder:
-            status_placeholder.info(
-                f"Connecting to {email_address}..."
-            )
+        if stop_event.is_set():
+
+            result["stopped"] = True
+            result["finished"] = now_string()
+
+            return result
+
+
+        # =================================================
+        # CONNECT
+        # =================================================
 
         mail = imaplib.IMAP4_SSL(
             IMAP_SERVER,
-            IMAP_PORT
+            IMAP_PORT,
+            timeout=30
         )
 
-        # -------------------------------------------------
-        # LOGIN
-        # -------------------------------------------------
 
-        if status_placeholder:
-            status_placeholder.info(
-                f"Logging in: {email_address}"
-            )
+        # =================================================
+        # STOP CHECK
+        # =================================================
+
+        if stop_event.is_set():
+
+            result["stopped"] = True
+            result["finished"] = now_string()
+
+            return result
+
+
+        # =================================================
+        # LOGIN
+        # =================================================
 
         mail.login(
             email_address,
             password
         )
 
-        # -------------------------------------------------
+
+        # =================================================
+        # STOP CHECK
+        # =================================================
+
+        if stop_event.is_set():
+
+            result["stopped"] = True
+            result["finished"] = now_string()
+
+            return result
+
+
+        # =================================================
         # SELECT INBOX
-        # -------------------------------------------------
+        # =================================================
 
-        mail.select("INBOX")
+        status, _ = mail.select(
+            "INBOX"
+        )
 
-        # -------------------------------------------------
-        # SEARCH UNREAD
-        # -------------------------------------------------
+        if status != "OK":
 
-        if status_placeholder:
-            status_placeholder.info(
-                f"Checking unread messages: {email_address}"
+            raise Exception(
+                "Unable to select INBOX"
             )
+
+
+        # =================================================
+        # SEARCH UNSEEN
+        # =================================================
 
         status, data = mail.uid(
             "search",
@@ -242,85 +327,65 @@ def check_mailbox(
         )
 
         if status != "OK":
+
             raise Exception(
                 "Unable to search UNSEEN messages"
             )
 
+
         uid_list = data[0].split()
 
-        result["unread_found"] = len(uid_list)
+        result["unread_found"] = len(
+            uid_list
+        )
 
-        # -------------------------------------------------
-        # LIMIT TO 2000
-        # -------------------------------------------------
+
+        # =================================================
+        # LIMIT
+        # =================================================
 
         selected_uids = uid_list[
             :MAX_MESSAGES_PER_MAILBOX
         ]
 
-        result["selected"] = len(selected_uids)
+        result["selected"] = len(
+            selected_uids
+        )
 
-        if len(selected_uids) == 0:
 
-            if status_placeholder:
-                status_placeholder.success(
-                    f"No unread messages: {email_address}"
-                )
+        # =================================================
+        # NO UNREAD
+        # =================================================
 
-            result["finished"] = datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
+        if not selected_uids:
+
+            result["finished"] = now_string()
 
             return result
 
-        # -------------------------------------------------
+
+        # =================================================
         # PROCESS MESSAGES
-        # -------------------------------------------------
+        # =================================================
 
-        total = len(selected_uids)
-
-        for position, uid in enumerate(
-            selected_uids,
-            start=1
-        ):
+        for uid in selected_uids:
 
             # ---------------------------------------------
             # STOP CHECK
             # ---------------------------------------------
 
-            if st.session_state.stop_requested:
+            if stop_event.is_set():
 
                 result["stopped"] = True
 
-                if status_placeholder:
-                    status_placeholder.warning(
-                        f"Stopped: {email_address}"
-                    )
-
                 break
 
-            # ---------------------------------------------
-            # PROGRESS
-            # ---------------------------------------------
-
-            percent = position / total
-
-            if progress_placeholder:
-                progress_placeholder.progress(
-                    percent
-                )
-
-            if status_placeholder:
-                status_placeholder.info(
-                    f"Processing {position}/{total} "
-                    f"— {email_address}"
-                )
-
-            # ---------------------------------------------
-            # FETCH MESSAGE
-            # ---------------------------------------------
 
             try:
+
+                # -----------------------------------------
+                # FETCH MESSAGE
+                # -----------------------------------------
 
                 fetch_status, msg_data = mail.uid(
                     "fetch",
@@ -329,8 +394,15 @@ def check_mailbox(
                 )
 
                 if fetch_status != "OK":
+
                     result["failed"] += 1
+
                     continue
+
+
+                # -----------------------------------------
+                # EXTRACT RAW MESSAGE
+                # -----------------------------------------
 
                 raw_message = None
 
@@ -342,11 +414,13 @@ def check_mailbox(
 
                         break
 
+
                 if not raw_message:
 
                     result["failed"] += 1
 
                     continue
+
 
                 # -----------------------------------------
                 # PARSE MESSAGE
@@ -356,13 +430,22 @@ def check_mailbox(
                     raw_message
                 )
 
+
                 subject = decode_mime(
-                    msg.get("Subject", "")
+                    msg.get(
+                        "Subject",
+                        ""
+                    )
                 )
 
+
                 sender = decode_mime(
-                    msg.get("From", "")
+                    msg.get(
+                        "From",
+                        ""
+                    )
                 )
+
 
                 # -----------------------------------------
                 # FETCH COUNT
@@ -370,9 +453,17 @@ def check_mailbox(
 
                 result["fetched"] += 1
 
+
                 # -----------------------------------------
                 # MARK SEEN
                 # -----------------------------------------
+
+                if stop_event.is_set():
+
+                    result["stopped"] = True
+
+                    break
+
 
                 seen_status, _ = mail.uid(
                     "store",
@@ -381,27 +472,34 @@ def check_mailbox(
                     "(\\Seen)"
                 )
 
+
                 if seen_status == "OK":
 
                     result["seen"] += 1
 
+
                 # -----------------------------------------
-                # SAVE LATEST 20
+                # SAVE LATEST
                 # -----------------------------------------
 
-                if len(result["latest"]) < MAX_LATEST_MESSAGES:
+                if len(
+                    result["latest"]
+                ) < MAX_LATEST_MESSAGES:
 
                     result["latest"].append(
                         {
-                            "subject": subject
-                            if subject
-                            else "(No Subject)",
+                            "subject":
+                                subject
+                                if subject
+                                else "(No Subject)",
 
-                            "from": sender
-                            if sender
-                            else "(Unknown Sender)"
+                            "from":
+                                sender
+                                if sender
+                                else "(Unknown Sender)"
                         }
                     )
+
 
             except Exception:
 
@@ -409,53 +507,48 @@ def check_mailbox(
 
                 continue
 
-        # -------------------------------------------------
-        # COMPLETE
-        # -------------------------------------------------
 
-        result["finished"] = datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        # =================================================
+        # FINISH
+        # =================================================
 
-        if not result["stopped"]:
-
-            if progress_placeholder:
-                progress_placeholder.progress(1.0)
-
-            if status_placeholder:
-                status_placeholder.success(
-                    f"Completed: {email_address}"
-                )
+        result["finished"] = now_string()
 
         return result
+
 
     except Exception as exc:
 
         result["error"] = str(exc)
 
-        result["finished"] = datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-
-        if status_placeholder:
-            status_placeholder.error(
-                f"Error: {email_address} — {exc}"
-            )
+        result["finished"] = now_string()
 
         return result
 
+
     finally:
+
+        # =================================================
+        # CLOSE IMAP
+        # =================================================
 
         if mail:
 
             try:
+
                 mail.close()
+
             except Exception:
+
                 pass
 
+
             try:
+
                 mail.logout()
+
             except Exception:
+
                 pass
 
 
@@ -469,7 +562,9 @@ if not st.session_state.logged_in:
         """
         <div class="login-box">
 
-            <div class="login-icon">📬</div>
+            <div class="login-icon">
+                📬
+            </div>
 
             <div class="login-title">
                 Mailbox Dashboard
@@ -484,23 +579,22 @@ if not st.session_state.logged_in:
         unsafe_allow_html=True
     )
 
+
     username = st.text_input(
-        "Username",
-        key="login_username"
+        "Username"
     )
+
 
     password = st.text_input(
         "Password",
-        type="password",
-        key="login_password"
+        type="password"
     )
 
-    login_clicked = st.button(
+
+    if st.button(
         "🔐 LOGIN",
         use_container_width=True
-    )
-
-    if login_clicked:
+    ):
 
         dashboard_username = os.getenv(
             "DASHBOARD_USERNAME"
@@ -509,6 +603,7 @@ if not st.session_state.logged_in:
         dashboard_password = os.getenv(
             "DASHBOARD_PASSWORD"
         )
+
 
         if (
             dashboard_username
@@ -521,11 +616,13 @@ if not st.session_state.logged_in:
 
             st.rerun()
 
+
         else:
 
             st.error(
                 "Invalid username or password."
             )
+
 
     st.stop()
 
@@ -541,7 +638,9 @@ accounts = load_accounts()
 # HEADER
 # =========================================================
 
-st.title("📬 Yahoo Mailbox Dashboard")
+st.title(
+    "📬 Yahoo Mailbox Dashboard"
+)
 
 st.caption(
     "Manage your configured Yahoo mailboxes"
@@ -549,19 +648,19 @@ st.caption(
 
 
 # =========================================================
-# TOP CONTROLS
+# CONTROL BUTTONS
 # =========================================================
 
-col1, col2, col3 = st.columns(
+c1, c2, c3 = st.columns(
     [2, 1, 1]
 )
 
 
 # =========================================================
-# START PROCESSING
+# START BUTTON
 # =========================================================
 
-with col1:
+with c1:
 
     start_clicked = st.button(
         "▶ START PROCESSING",
@@ -571,10 +670,10 @@ with col1:
 
 
 # =========================================================
-# STOP
+# STOP BUTTON
 # =========================================================
 
-with col2:
+with c2:
 
     stop_clicked = st.button(
         "🛑 STOP",
@@ -584,10 +683,10 @@ with col2:
 
 
 # =========================================================
-# LOGOUT
+# LOGOUT BUTTON
 # =========================================================
 
-with col3:
+with c3:
 
     logout_clicked = st.button(
         "🚪 LOGOUT",
@@ -595,156 +694,313 @@ with col3:
     )
 
 
+# =========================================================
+# LOGOUT
+# =========================================================
+
 if logout_clicked:
 
-    st.session_state.logged_in = False
+    st.session_state.stop_event.set()
+
     st.session_state.processing = False
-    st.session_state.stop_requested = False
+
+    st.session_state.stop_requested = True
+
+    st.session_state.logged_in = False
+
+    st.session_state.selected_mailbox = None
 
     st.rerun()
 
 
 # =========================================================
-# STOP REQUEST
+# STOP
 # =========================================================
 
 if stop_clicked:
 
     st.session_state.stop_requested = True
 
+    st.session_state.stop_event.set()
+
     st.warning(
-        "🛑 Stop requested. Current message will finish, "
-        "then processing will stop."
+        "🛑 Stop requested. Running mailbox tasks "
+        "will stop at the next safe point."
     )
 
 
 # =========================================================
-# START GLOBAL PROCESSING
+# START PROCESSING
 # =========================================================
 
 if start_clicked:
 
-    if not accounts:
+    # =====================================================
+    # SAFETY CHECK
+    # =====================================================
+
+    if st.session_state.processing:
+
+        st.warning(
+            "Processing is already running."
+        )
+
+    elif not accounts:
 
         st.error(
-            "No Yahoo mailbox configured."
+            "No Yahoo mailboxes configured."
         )
 
     else:
 
-        # IMPORTANT:
-        # Do NOT clear results here.
-        #
-        # Old code had:
-        # st.session_state.results = {}
-        #
-        # That caused already processed mailbox
-        # information to disappear.
+        # =================================================
+        # NEW RUN
+        # =================================================
 
-        st.session_state.processing = True
+        st.session_state.run_id += 1
+
+        current_run_id = (
+            st.session_state.run_id
+        )
+
+        # Clear previous stop signal
+        st.session_state.stop_event.clear()
+
         st.session_state.stop_requested = False
 
-        # -------------------------------------------------
-        # FIND NEXT MAILBOX
-        # -------------------------------------------------
+        st.session_state.processing = True
 
-        total_accounts = len(accounts)
 
-        for index, account in enumerate(accounts):
+        # =================================================
+        # FIND PENDING ACCOUNTS
+        # =================================================
 
-            email_address = account["email"]
+        pending_accounts = []
 
-            # ---------------------------------------------
-            # STOP
-            # ---------------------------------------------
+        for account in accounts:
 
-            if st.session_state.stop_requested:
+            email_address = account[
+                "email"
+            ]
 
-                st.session_state.processing_index = index
-
-                break
-
-            # ---------------------------------------------
-            # ALREADY COMPLETED?
-            # ---------------------------------------------
-
-            existing = st.session_state.results.get(
-                email_address
+            old_result = (
+                st.session_state.results.get(
+                    email_address
+                )
             )
 
-            if existing:
-
-                # If mailbox was previously completed
-                # and not stopped, skip it.
-
-                if (
-                    existing.get("finished")
-                    and not existing.get("stopped")
-                    and not existing.get("error")
-                ):
-
-                    continue
 
             # ---------------------------------------------
-            # CURRENT MAILBOX
+            # SKIP SUCCESSFULLY COMPLETED
             # ---------------------------------------------
 
-            st.session_state.processing_index = index
+            if (
+                old_result
+                and old_result.get("finished")
+                and not old_result.get("stopped")
+                and not old_result.get("error")
+            ):
 
-            st.subheader(
-                f"📬 Processing mailbox "
-                f"{index + 1}/{total_accounts}"
+                continue
+
+
+            pending_accounts.append(
+                account
             )
 
-            mailbox_progress = st.progress(0)
 
-            mailbox_status = st.empty()
+        # =================================================
+        # NOTHING TO PROCESS
+        # =================================================
 
-            result = check_mailbox(
-                account,
-                progress_placeholder=mailbox_progress,
-                status_placeholder=mailbox_status
-            )
+        if not pending_accounts:
 
-            # ---------------------------------------------
-            # SAVE RESULT IMMEDIATELY
-            # ---------------------------------------------
+            st.session_state.processing = False
 
-            st.session_state.results[
-                email_address
-            ] = result
-
-            mailbox_progress.empty()
-            mailbox_status.empty()
-
-            # ---------------------------------------------
-            # STOP AFTER CURRENT MAILBOX
-            # ---------------------------------------------
-
-            if result.get("stopped"):
-
-                break
-
-        # -------------------------------------------------
-        # PROCESSING FINISHED / STOPPED
-        # -------------------------------------------------
-
-        st.session_state.processing = False
-
-        if st.session_state.stop_requested:
-
-            st.warning(
-                "🛑 Processing stopped. "
-                "Completed mailbox results are saved."
+            st.success(
+                "✅ All configured mailboxes are already processed."
             )
 
         else:
 
-            st.success(
-                "✅ All available mailboxes processed."
+            total_pending = len(
+                pending_accounts
             )
 
-        st.rerun()
+            st.info(
+                f"⚡ Processing {total_pending} mailboxes "
+                f"using up to {MAX_PARALLEL_MAILBOXES} "
+                f"parallel connections."
+            )
+
+
+            overall_progress = st.progress(
+                0
+            )
+
+
+            status_text = st.empty()
+
+
+            completed_count = 0
+
+
+            # =================================================
+            # THREAD POOL
+            # =================================================
+
+            with ThreadPoolExecutor(
+                max_workers=MAX_PARALLEL_MAILBOXES
+            ) as executor:
+
+
+                future_map = {}
+
+
+                # =================================================
+                # SUBMIT TASKS
+                # =================================================
+
+                for account in pending_accounts:
+
+                    # Do NOT submit more work after stop
+                    if st.session_state.stop_event.is_set():
+
+                        break
+
+
+                    future = executor.submit(
+                        check_mailbox,
+                        account,
+                        st.session_state.stop_event
+                    )
+
+
+                    future_map[
+                        future
+                    ] = account
+
+
+                # =================================================
+                # COLLECT COMPLETED TASKS
+                # =================================================
+
+                for future in as_completed(
+                    future_map
+                ):
+
+                    account = future_map[
+                        future
+                    ]
+
+                    email_address = account[
+                        "email"
+                    ]
+
+
+                    try:
+
+                        result = future.result()
+
+
+                    except Exception as exc:
+
+                        result = create_empty_result(
+                            email_address
+                        )
+
+                        result["error"] = str(
+                            exc
+                        )
+
+                        result["finished"] = (
+                            now_string()
+                        )
+
+
+                    # =============================================
+                    # SAVE RESULT
+                    # =============================================
+
+                    st.session_state.results[
+                        email_address
+                    ] = result
+
+
+                    completed_count += 1
+
+
+                    # =============================================
+                    # PROGRESS
+                    # =============================================
+
+                    progress_value = (
+                        completed_count
+                        / total_pending
+                    )
+
+
+                    overall_progress.progress(
+                        progress_value
+                    )
+
+
+                    status_text.info(
+                        f"⚡ Completed "
+                        f"{completed_count}/"
+                        f"{total_pending} — "
+                        f"{email_address}"
+                    )
+
+
+                    # =============================================
+                    # STOP CHECK
+                    # =============================================
+
+                    if st.session_state.stop_event.is_set():
+
+                        # Do not submit new tasks.
+                        # Already-running tasks will notice
+                        # stop_event and finish safely.
+
+                        continue
+
+
+            # =================================================
+            # PROCESSING FINISHED
+            # =================================================
+
+            st.session_state.processing = False
+
+
+            # =================================================
+            # STOPPED
+            # =================================================
+
+            if (
+                st.session_state.stop_event.is_set()
+                or st.session_state.stop_requested
+            ):
+
+                st.session_state.stop_requested = True
+
+                st.warning(
+                    "🛑 Processing stopped. "
+                    "Completed mailbox results are saved."
+                )
+
+
+            # =================================================
+            # COMPLETED
+            # =================================================
+
+            else:
+
+                st.session_state.stop_requested = False
+
+                st.success(
+                    "✅ Parallel processing completed."
+                )
 
 
 # =========================================================
@@ -761,50 +1017,79 @@ search_text = st.text_input(
 # METRICS
 # =========================================================
 
-mailboxes_count = len(accounts)
+mailboxes_count = len(
+    accounts
+)
+
 
 unread_total = sum(
-    r.get("unread_found", 0)
+    r.get(
+        "unread_found",
+        0
+    )
     for r in st.session_state.results.values()
 )
+
 
 fetched_total = sum(
-    r.get("fetched", 0)
+    r.get(
+        "fetched",
+        0
+    )
     for r in st.session_state.results.values()
 )
+
 
 seen_total = sum(
-    r.get("seen", 0)
+    r.get(
+        "seen",
+        0
+    )
     for r in st.session_state.results.values()
 )
+
 
 failed_total = sum(
-    r.get("failed", 0)
+    r.get(
+        "failed",
+        0
+    )
     for r in st.session_state.results.values()
 )
 
 
-m1, m2, m3, m4, m5 = st.columns(5)
+# =========================================================
+# METRIC DISPLAY
+# =========================================================
+
+m1, m2, m3, m4, m5 = st.columns(
+    5
+)
+
 
 m1.metric(
     "Mailboxes",
     mailboxes_count
 )
 
+
 m2.metric(
     "Unread Found",
     unread_total
 )
+
 
 m3.metric(
     "Fetched",
     fetched_total
 )
 
+
 m4.metric(
     "Marked Seen",
     seen_total
 )
+
 
 m5.metric(
     "Failed",
@@ -813,13 +1098,19 @@ m5.metric(
 
 
 # =========================================================
-# PROCESSING STATUS
+# STATUS
 # =========================================================
 
 if st.session_state.processing:
 
     st.info(
-        "⏳ Processing is running..."
+        "⏳ Parallel processing is running..."
+    )
+
+elif st.session_state.stop_requested:
+
+    st.warning(
+        "🛑 Processing was stopped."
     )
 
 elif st.session_state.results:
@@ -835,37 +1126,59 @@ elif st.session_state.results:
 
 st.divider()
 
-st.subheader("📮 Mailboxes")
+st.subheader(
+    "📮 Mailboxes"
+)
 
 
 if not accounts:
 
     st.warning(
-        "No Yahoo mailboxes configured in Render environment variables."
+        "No Yahoo mailboxes configured "
+        "in Render environment variables."
     )
 
 else:
 
     for account in accounts:
 
-        email_address = account["email"]
+        email_address = account[
+            "email"
+        ]
+
+
+        # =================================================
+        # SEARCH FILTER
+        # =================================================
 
         if (
             search_text
             and search_text.lower()
             not in email_address.lower()
         ):
+
             continue
 
-        result = st.session_state.results.get(
-            email_address
+
+        result = (
+            st.session_state.results.get(
+                email_address
+            )
         )
 
-        with st.container(border=True):
+
+        with st.container(
+            border=True
+        ):
 
             c1, c2 = st.columns(
                 [4, 1]
             )
+
+
+            # =================================================
+            # MAILBOX INFO
+            # =================================================
 
             with c1:
 
@@ -873,20 +1186,27 @@ else:
                     f"### 📧 {email_address}"
                 )
 
+
                 if result:
 
-                    if result.get("stopped"):
+                    if result.get(
+                        "stopped"
+                    ):
 
                         st.warning(
                             "⏸ Processing stopped"
                         )
 
-                    elif result.get("error"):
+
+                    elif result.get(
+                        "error"
+                    ):
 
                         st.error(
-                            f"❌ Error: "
-                            f"{result['error']}"
+                            "❌ Error: "
+                            + result["error"]
                         )
+
 
                     else:
 
@@ -894,72 +1214,108 @@ else:
                             "✅ Processed"
                         )
 
+
                     st.write(
-                        f"Unread: **{result.get('unread_found', 0)}**  |  "
-                        f"Fetched: **{result.get('fetched', 0)}**  |  "
-                        f"Seen: **{result.get('seen', 0)}**  |  "
-                        f"Failed: **{result.get('failed', 0)}**"
+                        f"Unread: "
+                        f"**{result.get('unread_found', 0)}**  |  "
+                        f"Fetched: "
+                        f"**{result.get('fetched', 0)}**  |  "
+                        f"Seen: "
+                        f"**{result.get('seen', 0)}**  |  "
+                        f"Failed: "
+                        f"**{result.get('failed', 0)}**"
                     )
+
+
+                    if result.get(
+                        "finished"
+                    ):
+
+                        st.caption(
+                            "Finished: "
+                            + result["finished"]
+                        )
+
 
                 else:
 
                     st.info(
-                        "This mailbox has not been processed yet."
+                        "Not processed yet."
                     )
+
+
+            # =================================================
+            # INDIVIDUAL PROCESS BUTTON
+            # =================================================
 
             with c2:
 
                 open_clicked = st.button(
                     "▶ Open / Process",
                     key=f"open_{account['index']}",
-                    use_container_width=True
+                    use_container_width=True,
+                    disabled=st.session_state.processing
                 )
 
+
                 if open_clicked:
+
+                    # -----------------------------------------
+                    # RESET STOP EVENT
+                    # -----------------------------------------
+
+                    st.session_state.stop_event.clear()
+
+                    st.session_state.stop_requested = False
 
                     st.session_state.selected_mailbox = (
                         email_address
                     )
 
+
+                    # -----------------------------------------
+                    # PROCESS
+                    # -----------------------------------------
+
                     with st.spinner(
                         f"Processing {email_address}..."
                     ):
 
-                        mailbox_progress = st.progress(
-                            0
-                        )
-
-                        mailbox_status = st.empty()
-
                         result = check_mailbox(
                             account,
-                            progress_placeholder=mailbox_progress,
-                            status_placeholder=mailbox_status
+                            st.session_state.stop_event
                         )
 
-                        # SAVE RESULT
-                        st.session_state.results[
-                            email_address
-                        ] = result
 
-                        mailbox_progress.empty()
-                        mailbox_status.empty()
+                    # -----------------------------------------
+                    # SAVE
+                    # -----------------------------------------
+
+                    st.session_state.results[
+                        email_address
+                    ] = result
+
 
                     st.rerun()
 
 
 # =========================================================
-# SELECTED MAILBOX DETAILS
+# SELECTED MAILBOX
 # =========================================================
 
-selected = st.session_state.selected_mailbox
+selected = (
+    st.session_state.selected_mailbox
+)
 
 
 if selected:
 
-    selected_result = st.session_state.results.get(
-        selected
+    selected_result = (
+        st.session_state.results.get(
+            selected
+        )
     )
+
 
     if selected_result:
 
@@ -969,7 +1325,11 @@ if selected:
             f"📧 {selected}"
         )
 
-        d1, d2, d3, d4 = st.columns(4)
+
+        d1, d2, d3, d4 = st.columns(
+            4
+        )
+
 
         d1.metric(
             "Unread",
@@ -979,6 +1339,7 @@ if selected:
             )
         )
 
+
         d2.metric(
             "Fetched",
             selected_result.get(
@@ -986,6 +1347,7 @@ if selected:
                 0
             )
         )
+
 
         d3.metric(
             "Seen",
@@ -995,6 +1357,7 @@ if selected:
             )
         )
 
+
         d4.metric(
             "Failed",
             selected_result.get(
@@ -1003,26 +1366,42 @@ if selected:
             )
         )
 
-        if selected_result.get("error"):
+
+        # =================================================
+        # ERROR
+        # =================================================
+
+        if selected_result.get(
+            "error"
+        ):
 
             st.error(
                 selected_result["error"]
             )
 
-        if selected_result.get("stopped"):
+
+        # =================================================
+        # STOPPED
+        # =================================================
+
+        if selected_result.get(
+            "stopped"
+        ):
 
             st.warning(
                 "Processing was stopped."
             )
 
-        # -------------------------------------------------
+
+        # =================================================
         # LATEST MESSAGES
-        # -------------------------------------------------
+        # =================================================
 
         latest = selected_result.get(
             "latest",
             []
         )
+
 
         if latest:
 
@@ -1030,22 +1409,34 @@ if selected:
                 "📨 Latest Processed Messages"
             )
 
+
             for message in latest:
 
-                with st.container(border=True):
+                with st.container(
+                    border=True
+                ):
 
                     st.write(
-                        f"**Subject:** "
-                        f"{message.get('subject', '(No Subject)')}"
+                        "**Subject:** "
+                        + message.get(
+                            "subject",
+                            "(No Subject)"
+                        )
                     )
 
+
                     st.write(
-                        f"**From:** "
-                        f"{message.get('from', '(Unknown Sender)')}"
+                        "**From:** "
+                        + message.get(
+                            "from",
+                            "(Unknown Sender)"
+                        )
                     )
+
 
         else:
 
             st.info(
                 "No messages were processed."
             )
+```
