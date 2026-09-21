@@ -9,8 +9,11 @@ import time
 import hmac
 import secrets
 import threading
+import requests
 from email.header import decode_header
 from datetime import datetime
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -41,18 +44,46 @@ MAX_PARALLEL_MAILBOXES = int(os.getenv("MAX_PARALLEL_MAILBOXES", "10"))
 
 MAX_LATEST_MESSAGES = 20
 
+# ---------------------------------------------------------
+# OPEN / CLICK TRACKING
+# ---------------------------------------------------------
+# IMAP reading alone does NOT trigger tracking pixels. When
+# TRACK_OPENS is on, the tracking image URLs inside each mail
+# are requested over HTTP, like a mail client "loading images".
+
+TRACK_OPENS = os.getenv("TRACK_OPENS", "true").lower() == "true"
+
+# Also visit links found in the mail (click tracking).
+# Only links on TRACKING_DOMAINS are ever visited.
+CLICK_LINKS = os.getenv("CLICK_LINKS", "false").lower() == "true"
+
+# Comma separated, e.g. "track.mydomain.com,mydomain.com"
+# Images: if empty, every image URL in the mail is loaded.
+# Links : if empty, NO links are visited (safety).
+TRACKING_DOMAINS = [
+    d.strip().lower()
+    for d in os.getenv("TRACKING_DOMAINS", "").split(",")
+    if d.strip()
+]
+
+URL_TIMEOUT = 15
+MAX_URLS_PER_MESSAGE = 10
+
+USER_AGENT = os.getenv(
+    "TRACK_USER_AGENT",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+)
+
 # Messages fetched / marked seen per IMAP command
-CHUNK_SIZE = 50
+# (smaller when full messages are downloaded)
+CHUNK_SIZE = 20 if TRACK_OPENS else 50
 
 # Seconds before a hung IMAP socket raises an error
 SOCKET_TIMEOUT = 60
 
 # Auto-reconnect attempts per mailbox if the connection drops
 MAX_RECONNECTS = 3
-
-# False = download only From/Subject headers (very fast) and then mark as Seen
-# True  = download the full message (slow, heavy)
-FETCH_FULL_MESSAGE = False
 
 # Dashboard auto-refresh interval (seconds)
 REFRESH_SECONDS = 2
@@ -63,9 +94,10 @@ RESULTS_FILE = os.getenv("RESULTS_FILE", "mailbox_results.json")
 # Login stays valid after a browser refresh for this many hours
 SESSION_HOURS = 12
 
+# Tracking needs the full body (HTML). Otherwise headers only.
 FETCH_SPEC = (
-    "(UID RFC822)"
-    if FETCH_FULL_MESSAGE
+    "(UID BODY.PEEK[])"
+    if TRACK_OPENS
     else "(UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])"
 )
 
@@ -152,6 +184,9 @@ def new_result(email_address, state="queued"):
         "fetched": 0,
         "seen": 0,
         "failed": 0,
+        "opened": 0,
+        "clicked": 0,
+        "track_failed": 0,
         "error": "",
         "latest": [],
         "started": "",
@@ -228,22 +263,183 @@ def find_uid(*candidates):
     return None
 
 
-def process_chunk(mail, chunk):
+class _LinkParser(HTMLParser):
+
+    def __init__(self):
+        super().__init__()
+        self.images = []
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+
+        if tag == "img" and attrs.get("src"):
+            self.images.append(attrs["src"].strip())
+
+        elif tag == "a" and attrs.get("href"):
+            self.links.append(attrs["href"].strip())
+
+
+URL_RE = re.compile(r"https?://[^\s<>\"')]+")
+
+
+def part_text(part):
+    payload = part.get_payload(decode=True)
+
+    if payload is None:
+        return ""
+
+    charset = part.get_content_charset() or "utf-8"
+
+    try:
+        return payload.decode(charset, errors="replace")
+    except LookupError:
+        return payload.decode("utf-8", errors="replace")
+
+
+def extract_urls(msg):
+    """Return (image_urls, link_urls) found in a message."""
+
+    images = []
+    links = []
+
+    for part in msg.walk():
+
+        if part.get_content_disposition() == "attachment":
+            continue
+
+        ctype = part.get_content_type()
+
+        if ctype == "text/html":
+            parser = _LinkParser()
+
+            try:
+                parser.feed(part_text(part))
+            except Exception:
+                pass
+
+            images += parser.images
+            links += parser.links
+
+        elif ctype == "text/plain" and CLICK_LINKS:
+            links += URL_RE.findall(part_text(part))
+
+    return list(dict.fromkeys(images)), list(dict.fromkeys(links))
+
+
+def url_allowed(url, require_allowlist=False):
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+
+    if not TRACKING_DOMAINS:
+        return not require_allowlist
+
+    host = parsed.hostname.lower()
+
+    return any(
+        host == d or host.endswith("." + d)
+        for d in TRACKING_DOMAINS
+    )
+
+
+def hit_url(session, url):
+    try:
+        response = session.get(
+            url,
+            timeout=URL_TIMEOUT,
+            allow_redirects=True,
+            stream=True,
+        )
+
+        try:
+            next(response.iter_content(65536), None)
+        finally:
+            response.close()
+
+        return response.status_code < 400
+
+    except Exception:
+        return False
+
+
+def track_message(session, uid, msg, hit_done, stats):
     """
-    Fetch one batch of UIDs and mark them Seen.
-    Returns (fetched, seen, failed, latest_items).
-    Connection errors are raised so the caller can reconnect and retry.
+    Load tracking images (open) and optionally visit links (click).
+    Returns True if at least one open-tracking image loaded.
     """
+
+    try:
+        images, links = extract_urls(msg)
+    except Exception:
+        return False
+
+    opened = False
+
+    for url in images[:MAX_URLS_PER_MESSAGE]:
+
+        if not url_allowed(url):
+            continue
+
+        key = (uid, url)
+
+        if key in hit_done or hit_url(session, url):
+            hit_done.add(key)
+            opened = True
+        else:
+            stats["track_failed"] += 1
+
+    if opened:
+        stats["opened"] += 1
+
+    if CLICK_LINKS:
+
+        for url in links[:MAX_URLS_PER_MESSAGE]:
+
+            if not url_allowed(url, require_allowlist=True):
+                continue
+
+            key = (uid, url)
+
+            if key in hit_done or hit_url(session, url):
+                hit_done.add(key)
+                stats["clicked"] += 1
+            else:
+                stats["track_failed"] += 1
+
+    return opened
+
+
+def process_chunk(mail, chunk, session, hit_done):
+    """
+    Fetch one batch of UIDs, fire tracking requests, mark them Seen.
+    Returns a stats dict. Connection errors are raised so the
+    caller can reconnect and retry.
+    """
+
+    stats = {
+        "fetched": 0,
+        "seen": 0,
+        "failed": 0,
+        "opened": 0,
+        "clicked": 0,
+        "track_failed": 0,
+        "latest": [],
+    }
 
     uid_set = b",".join(chunk).decode()
 
     fetch_status, msg_data = mail.uid("fetch", uid_set, FETCH_SPEC)
 
     if fetch_status != "OK" or not msg_data:
-        return 0, 0, len(chunk), []
+        stats["failed"] = len(chunk)
+        return stats
 
     fetched_uids = []
-    latest = []
 
     for i, item in enumerate(msg_data):
 
@@ -260,24 +456,29 @@ def process_chunk(mail, chunk):
         if not uid or not raw_message:
             continue
 
+        tracked = False
+
         try:
             msg = email.message_from_bytes(raw_message)
             subject = decode_mime(msg.get("Subject", ""))
             sender = decode_mime(msg.get("From", ""))
+
+            if TRACK_OPENS:
+                tracked = track_message(session, uid, msg, hit_done, stats)
+
         except Exception:
             subject = ""
             sender = ""
 
         fetched_uids.append(uid)
 
-        latest.append(
+        stats["latest"].append(
             {
                 "subject": subject if subject else "(No Subject)",
                 "from": sender if sender else "(Unknown Sender)",
+                "tracked": tracked,
             }
         )
-
-    seen = 0
 
     if fetched_uids:
         seen_status, _ = mail.uid(
@@ -288,11 +489,12 @@ def process_chunk(mail, chunk):
         )
 
         if seen_status == "OK":
-            seen = len(fetched_uids)
+            stats["seen"] = len(fetched_uids)
 
-    failed = len(chunk) - len(fetched_uids)
+    stats["fetched"] = len(fetched_uids)
+    stats["failed"] = len(chunk) - len(fetched_uids)
 
-    return len(fetched_uids), seen, failed, latest
+    return stats
 
 
 def check_mailbox(account, stop_event, result, publish):
@@ -311,6 +513,10 @@ def check_mailbox(account, stop_event, result, publish):
     publish(result)
 
     mail = None
+
+    session = requests.Session()
+    session.headers.update({"User-Agent": USER_AGENT, "Accept": "*/*"})
+    hit_done = set()
 
     try:
         mail = imap_connect(email_address, password)
@@ -341,7 +547,7 @@ def check_mailbox(account, stop_event, result, publish):
             chunk = selected_uids[index:index + CHUNK_SIZE]
 
             try:
-                fetched, seen, failed, latest = process_chunk(mail, chunk)
+                stats = process_chunk(mail, chunk, session, hit_done)
 
             except (imaplib.IMAP4.abort, OSError) as exc:
                 # Connection dropped / timed out -> reconnect and retry chunk
@@ -361,11 +567,13 @@ def check_mailbox(account, stop_event, result, publish):
 
                 continue
 
-            result["fetched"] += fetched
-            result["seen"] += seen
-            result["failed"] += failed
+            for key in (
+                "fetched", "seen", "failed",
+                "opened", "clicked", "track_failed",
+            ):
+                result[key] += stats[key]
 
-            for item in latest:
+            for item in stats["latest"]:
                 if len(result["latest"]) < MAX_LATEST_MESSAGES:
                     result["latest"].append(item)
 
@@ -382,6 +590,7 @@ def check_mailbox(account, stop_event, result, publish):
     finally:
         result["finished"] = now()
         safe_logout(mail)
+        session.close()
         publish(result)
 
 
@@ -664,6 +873,8 @@ def render_status(result):
         f"Unread: **{result.get('unread_found', 0)}**  |  "
         f"Fetched: **{result.get('fetched', 0)}**  |  "
         f"Seen: **{result.get('seen', 0)}**  |  "
+        f"Opens tracked: **{result.get('opened', 0)}**  |  "
+        f"Clicks: **{result.get('clicked', 0)}**  |  "
         f"Failed: **{result.get('failed', 0)}**"
     )
 
@@ -683,12 +894,13 @@ def render_selected(results):
 
     st.subheader(f"📧 {selected}")
 
-    d1, d2, d3, d4 = st.columns(4)
+    d1, d2, d3, d4, d5 = st.columns(5)
 
     d1.metric("Unread", selected_result.get("unread_found", 0))
     d2.metric("Fetched", selected_result.get("fetched", 0))
     d3.metric("Seen", selected_result.get("seen", 0))
-    d4.metric("Failed", selected_result.get("failed", 0))
+    d4.metric("Opens Tracked", selected_result.get("opened", 0))
+    d5.metric("Failed", selected_result.get("failed", 0))
 
     if selected_result.get("error"):
         st.error(selected_result["error"])
@@ -706,6 +918,12 @@ def render_selected(results):
             with st.container(border=True):
                 st.write("**Subject:** " + message.get("subject", "(No Subject)"))
                 st.write("**From:** " + message.get("from", "(Unknown Sender)"))
+
+                if TRACK_OPENS:
+                    st.write(
+                        "**Open tracked:** "
+                        + ("✅ Yes" if message.get("tracked") else "❌ No")
+                    )
 
     elif selected_result.get("state") in ("done", "stopped", "error"):
         st.info("No messages were processed.")
@@ -824,13 +1042,15 @@ def dashboard():
 
     values = list(results.values())
 
-    m1, m2, m3, m4, m5 = st.columns(5)
+    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
 
     m1.metric("Mailboxes", len(accounts))
     m2.metric("Unread Found", sum(r.get("unread_found", 0) for r in values))
     m3.metric("Fetched", sum(r.get("fetched", 0) for r in values))
     m4.metric("Marked Seen", sum(r.get("seen", 0) for r in values))
-    m5.metric("Failed", sum(r.get("failed", 0) for r in values))
+    m5.metric("Opens Tracked", sum(r.get("opened", 0) for r in values))
+    m6.metric("Clicks", sum(r.get("clicked", 0) for r in values))
+    m7.metric("Failed", sum(r.get("failed", 0) for r in values))
 
     # ------------------- MAILBOX LIST -------------------
 
@@ -900,6 +1120,17 @@ def dashboard():
 st.title("📬 Yahoo Mailbox Dashboard")
 
 st.caption("Manage your configured Yahoo mailboxes")
+
+if TRACK_OPENS:
+    st.caption(
+        "🎯 Open tracking ON"
+        + (
+            f" — domains: {', '.join(TRACKING_DOMAINS)}"
+            if TRACKING_DOMAINS
+            else " — all image URLs (set TRACKING_DOMAINS to restrict)"
+        )
+        + (" | Click tracking ON" if CLICK_LINKS else "")
+    )
 
 st.text_input(
     "🔎 Search mailbox",
