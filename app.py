@@ -36,7 +36,10 @@ st.set_page_config(
 IMAP_SERVER = "imap.mail.yahoo.com"
 IMAP_PORT = 993
 
-MAX_MESSAGES_PER_MAILBOX = 2000
+# Default cap when the user picks "Custom" but a fallback is needed.
+# The user now chooses the actual limit from the dashboard UI each run
+# (via the "Mails to process" control) - see MailLimit below.
+DEFAULT_MESSAGE_LIMIT = 2000
 
 # How many Yahoo mailboxes run at the same time.
 # If Yahoo starts rejecting logins, lower this (e.g. 5).
@@ -497,7 +500,7 @@ def process_chunk(mail, chunk, session, hit_done):
     return stats
 
 
-def check_mailbox(account, stop_event, result, publish):
+def check_mailbox(account, stop_event, result, publish, limit=None):
     """
     Process one mailbox. Mutates `result` and calls publish(result)
     after each batch so the dashboard can show live progress.
@@ -530,7 +533,8 @@ def check_mailbox(account, stop_event, result, publish):
 
         result["unread_found"] = len(uid_list)
 
-        selected_uids = uid_list[:MAX_MESSAGES_PER_MAILBOX]
+        # limit is None -> process ALL unread mails
+        selected_uids = uid_list if limit is None else uid_list[:limit]
 
         result["selected"] = len(selected_uids)
         publish(result)
@@ -666,7 +670,7 @@ class JobManager:
 
     # ---------- jobs ----------
 
-    def start(self, accounts, only_pending=True):
+    def start(self, accounts, only_pending=True, limit=None):
         queued = 0
 
         with self.lock:
@@ -688,12 +692,12 @@ class JobManager:
 
                 self.results[email_address] = new_result(email_address, "queued")
                 self.active.add(email_address)
-                self.executor.submit(self._run, account)
+                self.executor.submit(self._run, account, limit)
                 queued += 1
 
         return queued
 
-    def _run(self, account):
+    def _run(self, account, limit=None):
         email_address = account["email"]
         result = new_result(email_address, "queued")
 
@@ -709,6 +713,7 @@ class JobManager:
                     self.stop_event,
                     result,
                     self._publish,
+                    limit=limit,
                 )
 
         except Exception as exc:
@@ -941,6 +946,37 @@ def dashboard():
     busy = len(active) > 0
     stopping = busy and mgr.stop_event.is_set()
 
+    # ------------------- MAIL LIMIT -------------------
+
+    lc1, lc2 = st.columns([1, 1])
+
+    with lc1:
+        mode = st.radio(
+            "Mails to process per mailbox",
+            options=["All unread", "Custom amount"],
+            horizontal=True,
+            disabled=busy,
+            key="limit_mode",
+        )
+
+    custom_limit = DEFAULT_MESSAGE_LIMIT
+
+    with lc2:
+        if mode == "Custom amount":
+            custom_limit = st.number_input(
+                "How many mails",
+                min_value=1,
+                max_value=100000,
+                value=int(st.session_state.get("custom_limit", DEFAULT_MESSAGE_LIMIT)),
+                step=50,
+                disabled=busy,
+                key="custom_limit",
+            )
+        else:
+            st.caption("Every unread mail in each mailbox will be processed.")
+
+    run_limit = None if mode == "All unread" else int(custom_limit)
+
     # ------------------- CONTROLS -------------------
 
     c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
@@ -1001,7 +1037,7 @@ def dashboard():
             st.error("No Yahoo mailboxes configured.")
 
         else:
-            queued = mgr.start(accounts, only_pending=True)
+            queued = mgr.start(accounts, only_pending=True, limit=run_limit)
 
             if queued == 0:
                 st.success("✅ All configured mailboxes are already processed.")
@@ -1101,7 +1137,7 @@ def dashboard():
 
                 if process_clicked:
                     st.session_state.selected_mailbox = email_address
-                    mgr.start([account], only_pending=False)
+                    mgr.start([account], only_pending=False, limit=run_limit)
                     st.rerun(scope="fragment")
 
                 if view_clicked:
