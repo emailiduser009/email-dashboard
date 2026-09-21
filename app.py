@@ -11,7 +11,7 @@ import secrets
 import threading
 import requests
 from email.header import decode_header
-from datetime import datetime
+from datetime import datetime, timedelta   # ✅ CHANGE 1: timedelta added
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
@@ -36,33 +36,16 @@ st.set_page_config(
 IMAP_SERVER = "imap.mail.yahoo.com"
 IMAP_PORT = 993
 
-# Default cap when the user picks "Custom" but a fallback is needed.
-# The user now chooses the actual limit from the dashboard UI each run
-# (via the "Mails to process" control) - see MailLimit below.
 DEFAULT_MESSAGE_LIMIT = 2000
 
-# How many Yahoo mailboxes run at the same time.
-# If Yahoo starts rejecting logins, lower this (e.g. 5).
 MAX_PARALLEL_MAILBOXES = int(os.getenv("MAX_PARALLEL_MAILBOXES", "10"))
 
 MAX_LATEST_MESSAGES = 20
 
-# ---------------------------------------------------------
-# OPEN / CLICK TRACKING
-# ---------------------------------------------------------
-# IMAP reading alone does NOT trigger tracking pixels. When
-# TRACK_OPENS is on, the tracking image URLs inside each mail
-# are requested over HTTP, like a mail client "loading images".
-
 TRACK_OPENS = os.getenv("TRACK_OPENS", "true").lower() == "true"
 
-# Also visit links found in the mail (click tracking).
-# Only links on TRACKING_DOMAINS are ever visited.
 CLICK_LINKS = os.getenv("CLICK_LINKS", "false").lower() == "true"
 
-# Comma separated, e.g. "track.mydomain.com,mydomain.com"
-# Images: if empty, every image URL in the mail is loaded.
-# Links : if empty, NO links are visited (safety).
 TRACKING_DOMAINS = [
     d.strip().lower()
     for d in os.getenv("TRACKING_DOMAINS", "").split(",")
@@ -78,26 +61,18 @@ USER_AGENT = os.getenv(
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
 )
 
-# Messages fetched / marked seen per IMAP command
-# (smaller when full messages are downloaded)
 CHUNK_SIZE = 20 if TRACK_OPENS else 50
 
-# Seconds before a hung IMAP socket raises an error
 SOCKET_TIMEOUT = 60
 
-# Auto-reconnect attempts per mailbox if the connection drops
 MAX_RECONNECTS = 3
 
-# Dashboard auto-refresh interval (seconds)
 REFRESH_SECONDS = 2
 
-# Results are saved here so they survive page refresh / app restart
 RESULTS_FILE = os.getenv("RESULTS_FILE", "mailbox_results.json")
 
-# Login stays valid after a browser refresh for this many hours
 SESSION_HOURS = 12
 
-# Tracking needs the full body (HTML). Otherwise headers only.
 FETCH_SPEC = (
     "(UID BODY.PEEK[])"
     if TRACK_OPENS
@@ -181,7 +156,7 @@ def decode_mime(value):
 def new_result(email_address, state="queued"):
     return {
         "email": email_address,
-        "state": state,  # queued | running | done | stopped | error
+        "state": state,
         "unread_found": 0,
         "selected": 0,
         "fetched": 0,
@@ -218,7 +193,7 @@ def load_accounts():
 
 
 # =========================================================
-# IMAP WORK  (runs in background threads, no Streamlit calls)
+# IMAP WORK
 # =========================================================
 
 def imap_connect(email_address, password):
@@ -301,8 +276,6 @@ def part_text(part):
 
 
 def extract_urls(msg):
-    """Return (image_urls, link_urls) found in a message."""
-
     images = []
     links = []
 
@@ -371,11 +344,6 @@ def hit_url(session, url):
 
 
 def track_message(session, uid, msg, hit_done, stats):
-    """
-    Load tracking images (open) and optionally visit links (click).
-    Returns True if at least one open-tracking image loaded.
-    """
-
     try:
         images, links = extract_urls(msg)
     except Exception:
@@ -418,12 +386,6 @@ def track_message(session, uid, msg, hit_done, stats):
 
 
 def process_chunk(mail, chunk, session, hit_done):
-    """
-    Fetch one batch of UIDs, fire tracking requests, mark them Seen.
-    Returns a stats dict. Connection errors are raised so the
-    caller can reconnect and retry.
-    """
-
     stats = {
         "fetched": 0,
         "seen": 0,
@@ -449,8 +411,6 @@ def process_chunk(mail, chunk, session, hit_done):
         if not isinstance(item, tuple):
             continue
 
-        # UID is normally in the first part, but some servers
-        # put it in the trailing element after the body.
         next_item = msg_data[i + 1] if i + 1 < len(msg_data) else None
         uid = find_uid(item[0], next_item)
 
@@ -500,10 +460,19 @@ def process_chunk(mail, chunk, session, hit_done):
     return stats
 
 
-def check_mailbox(account, stop_event, result, publish, limit=None):
+# =========================================================
+# ✅ CHANGE 2: check_mailbox – date_from / date_to params added
+# =========================================================
+
+def check_mailbox(account, stop_event, result, publish, limit=None,
+                  date_from=None, date_to=None):
     """
     Process one mailbox. Mutates `result` and calls publish(result)
     after each batch so the dashboard can show live progress.
+
+    date_from / date_to: datetime.date objects (optional).
+      date_from  → only mails ON or AFTER this date  (SINCE)
+      date_to    → only mails ON or BEFORE this date (BEFORE next day)
     """
 
     email_address = account["email"]
@@ -524,16 +493,36 @@ def check_mailbox(account, stop_event, result, publish, limit=None):
     try:
         mail = imap_connect(email_address, password)
 
-        status, data = mail.uid("search", None, "UNSEEN")
+        # -----------------------------------------------
+        # Build IMAP search criteria with optional dates
+        # -----------------------------------------------
+        criteria_parts = ["UNSEEN"]
+
+        if date_from:
+            # IMAP SINCE is inclusive
+            criteria_parts.append(
+                "SINCE " + date_from.strftime("%d-%b-%Y")
+            )
+
+        if date_to:
+            # IMAP BEFORE is exclusive → add 1 day to include date_to itself
+            before_date = date_to + timedelta(days=1)
+            criteria_parts.append(
+                "BEFORE " + before_date.strftime("%d-%b-%Y")
+            )
+
+        search_criteria = " ".join(criteria_parts)
+        # e.g. "UNSEEN SINCE 01-Jan-2024 BEFORE 01-Feb-2024"
+
+        status, data = mail.uid("search", None, search_criteria)
 
         if status != "OK":
-            raise RuntimeError("Unable to search UNSEEN messages")
+            raise RuntimeError("Unable to search messages")
 
         uid_list = data[0].split() if data and data[0] else []
 
         result["unread_found"] = len(uid_list)
 
-        # limit is None -> process ALL unread mails
         selected_uids = uid_list if limit is None else uid_list[:limit]
 
         result["selected"] = len(selected_uids)
@@ -554,7 +543,6 @@ def check_mailbox(account, stop_event, result, publish, limit=None):
                 stats = process_chunk(mail, chunk, session, hit_done)
 
             except (imaplib.IMAP4.abort, OSError) as exc:
-                # Connection dropped / timed out -> reconnect and retry chunk
                 reconnects += 1
 
                 if reconnects > MAX_RECONNECTS:
@@ -600,10 +588,6 @@ def check_mailbox(account, stop_event, result, publish, limit=None):
 
 # =========================================================
 # BACKGROUND JOB MANAGER
-#
-# Lives at process level (st.cache_resource), NOT inside a
-# browser session. So refreshing the page, clicking buttons,
-# or logging out never interrupts running mailbox jobs.
 # =========================================================
 
 class JobManager:
@@ -668,14 +652,16 @@ class JobManager:
         self._save()
         return True
 
-    # ---------- jobs ----------
+    # -------------------------------------------------------
+    # ✅ CHANGE 3: start() – date_from / date_to params added
+    # -------------------------------------------------------
 
-    def start(self, accounts, only_pending=True, limit=None):
+    def start(self, accounts, only_pending=True, limit=None,
+              date_from=None, date_to=None):
         queued = 0
 
         with self.lock:
 
-            # Safe to reset the stop signal only when nothing is running
             if not self.active:
                 self.stop_event.clear()
 
@@ -692,12 +678,18 @@ class JobManager:
 
                 self.results[email_address] = new_result(email_address, "queued")
                 self.active.add(email_address)
-                self.executor.submit(self._run, account, limit)
+                self.executor.submit(
+                    self._run, account, limit, date_from, date_to   # ✅ pass dates
+                )
                 queued += 1
 
         return queued
 
-    def _run(self, account, limit=None):
+    # -------------------------------------------------------
+    # ✅ CHANGE 4: _run() – date_from / date_to params added
+    # -------------------------------------------------------
+
+    def _run(self, account, limit=None, date_from=None, date_to=None):
         email_address = account["email"]
         result = new_result(email_address, "queued")
 
@@ -714,6 +706,8 @@ class JobManager:
                     result,
                     self._publish,
                     limit=limit,
+                    date_from=date_from,   # ✅ pass dates
+                    date_to=date_to,
                 )
 
         except Exception as exc:
@@ -727,7 +721,7 @@ class JobManager:
                 self.active.discard(email_address)
             self._save()
 
-    # ---------- login tokens (survive browser refresh) ----------
+    # ---------- login tokens ----------
 
     def create_token(self):
         token = secrets.token_urlsafe(24)
@@ -935,7 +929,7 @@ def render_selected(results):
 
 
 # =========================================================
-# LIVE DASHBOARD  (auto-refreshes; only this fragment reruns)
+# LIVE DASHBOARD
 # =========================================================
 
 @st.fragment(run_every=REFRESH_SECONDS)
@@ -945,6 +939,57 @@ def dashboard():
 
     busy = len(active) > 0
     stopping = busy and mgr.stop_event.is_set()
+
+    # -------------------------------------------------------
+    # ✅ CHANGE 5: Date Range Filter UI
+    # -------------------------------------------------------
+
+    st.markdown("#### 📅 Date Range Filter")
+
+    use_date_filter = st.checkbox(
+        "Filter emails by date range",
+        disabled=busy,
+        key="use_date_filter",
+        help="Enable to process only emails received between the two dates",
+    )
+
+    date_from = None
+    date_to = None
+
+    if use_date_filter:
+        df_col, dt_col, info_col = st.columns([1, 1, 2])
+
+        with df_col:
+            date_from = st.date_input(
+                "From date (inclusive)",
+                value=datetime.today().date(),
+                disabled=busy,
+                key="date_from",
+            )
+
+        with dt_col:
+            date_to = st.date_input(
+                "To date (inclusive)",
+                value=datetime.today().date(),
+                disabled=busy,
+                key="date_to",
+            )
+
+        # Validate
+        if date_from and date_to and date_from > date_to:
+            st.error("⚠️ 'From date' must be on or before 'To date'.")
+            date_from = date_to = None
+        elif date_from and date_to:
+            with info_col:
+                st.info(
+                    f"📬 Processing UNSEEN mails from "
+                    f"**{date_from.strftime('%d %b %Y')}** "
+                    f"to **{date_to.strftime('%d %b %Y')}** (inclusive)"
+                )
+    else:
+        st.caption("📬 All unread mails will be processed (no date filter).")
+
+    st.divider()
 
     # ------------------- MAIL LIMIT -------------------
 
@@ -1036,8 +1081,17 @@ def dashboard():
         if not accounts:
             st.error("No Yahoo mailboxes configured.")
 
+        elif use_date_filter and (date_from is None or date_to is None):
+            st.error("Please fix the date range before starting.")
+
         else:
-            queued = mgr.start(accounts, only_pending=True, limit=run_limit)
+            queued = mgr.start(
+                accounts,
+                only_pending=True,
+                limit=run_limit,
+                date_from=date_from,   # ✅ pass dates
+                date_to=date_to,
+            )
 
             if queued == 0:
                 st.success("✅ All configured mailboxes are already processed.")
@@ -1137,7 +1191,13 @@ def dashboard():
 
                 if process_clicked:
                     st.session_state.selected_mailbox = email_address
-                    mgr.start([account], only_pending=False, limit=run_limit)
+                    mgr.start(
+                        [account],
+                        only_pending=False,
+                        limit=run_limit,
+                        date_from=date_from,   # ✅ pass dates for individual run too
+                        date_to=date_to,
+                    )
                     st.rerun(scope="fragment")
 
                 if view_clicked:
